@@ -68,7 +68,7 @@ export default function Home() {
           <div className="relative z-10 flex flex-col gap-4">
             {/* Background floating comics - less prominent */}
             <div className="absolute -top-32 -left-20 opacity-20 animate-float animation-delay-300">
-              <div className="bg-white w-48 aspect-[3/4] p-2 shadow-2xl rounded-sm rotate-12">
+              <div className="bg-white w-48 aspect-3/4 p-2 shadow-2xl rounded-sm rotate-12">
                 <div className="w-full h-full bg-neutral-900 border-2 border-black overflow-hidden">
                   <img
                     src="/manga-style-hero-battle-scene.jpg"
@@ -80,7 +80,7 @@ export default function Home() {
             </div>
 
             <div className="absolute -bottom-40 left-10 opacity-15 animate-float animation-delay-500">
-              <div className="bg-white w-56 aspect-[3/4] p-2 shadow-2xl rounded-sm -rotate-6">
+              <div className="bg-white w-56 aspect-3/4 p-2 shadow-2xl rounded-sm -rotate-6">
                 <div className="w-full h-full bg-neutral-900 border-2 border-black overflow-hidden">
                   <img
                     src="/american-comic-superhero-flying.jpg"
@@ -92,7 +92,7 @@ export default function Home() {
             </div>
 
             <div className="absolute top-20 -right-32 opacity-25 animate-float animation-delay-700">
-              <div className="bg-white w-52 aspect-[3/4] p-2 shadow-2xl rounded-sm -rotate-12">
+              <div className="bg-white w-52 aspect-3/4 p-2 shadow-2xl rounded-sm -rotate-12">
                 <div className="w-full h-full bg-neutral-900 border-2 border-black overflow-hidden">
                   <img
                     src="/noir-detective-comic-panel-dark.jpg"
@@ -104,7 +104,7 @@ export default function Home() {
             </div>
 
             <div className="absolute bottom-10 -right-24 opacity-18 animate-float animation-delay-1000">
-              <div className="bg-white w-44 aspect-[3/4] p-2 shadow-2xl rounded-sm rotate-6">
+              <div className="bg-white w-44 aspect-3/4 p-2 shadow-2xl rounded-sm rotate-6">
                 <div className="w-full h-full bg-neutral-900 border-4 border-black overflow-hidden relative">
                   <img
                     src="/vintage-comic-book-cover-retro.jpg"
@@ -116,7 +116,7 @@ export default function Home() {
             </div>
 
             <div className="relative">
-              <div className="bg-white w-80 aspect-[3/4] p-2 shadow-2xl rounded-sm hover:shadow-indigo/20 hover:shadow-3xl transition-all duration-300 hover:scale-[1.02]">
+              <div className="bg-white w-80 aspect-3/4 p-2 shadow-2xl rounded-sm hover:shadow-indigo/20 hover:shadow-3xl transition-all duration-300 hover:scale-[1.02]">
                 <div className="w-full h-full bg-neutral-900 border-4 border-black overflow-hidden relative">
                   {/* Page transition container */}
                   <div className="relative w-full h-full">
@@ -129,7 +129,7 @@ export default function Home() {
                       <img
                         src="/comic-book-page-with-superhero-action-scene-noir-s.jpg"
                         alt="Comic preview page 1"
-                        className="w-full h-full object-cover opacity-80 grayscale-[20%] contrast-125"
+                        className="w-full h-full object-cover opacity-80 grayscale-20 contrast-125"
                       />
                       <div className="scan-line opacity-50" />
                       <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/70 text-[9px] text-white font-mono uppercase tracking-widest border border-white/10">
@@ -149,7 +149,7 @@ export default function Home() {
                       <img
                         src="/american-comic-superhero-flying.jpg"
                         alt="Comic preview page 2"
-                        className="w-full h-full object-cover opacity-80 grayscale-[20%] contrast-125"
+                        className="w-full h-full object-cover opacity-80 grayscale-20 contrast-125"
                       />
                       <div className="scan-line opacity-50" />
                       <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/70 text-[9px] text-white font-mono uppercase tracking-widest border border-white/10">
@@ -168,7 +168,7 @@ export default function Home() {
                       <img
                         src="/manga-style-hero-battle-scene.jpg"
                         alt="Comic preview page 3"
-                        className="w-full h-full object-cover opacity-80 grayscale-[20%] contrast-125"
+                        className="w-full h-full object-cover opacity-80 grayscale-20 contrast-125"
                       />
                       <div className="scan-line opacity-50" />
                       <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/70 text-[9px] text-white font-mono uppercase tracking-widest border border-white/10">
@@ -186,7 +186,7 @@ export default function Home() {
             <div className="absolute -right-20 top-1/2 -translate-y-1/2 flex flex-col gap-3">
               <button
                 onClick={() => goToPage(1)}
-                className={`w-8 h-8 rounded-full glass-panel flex items-center justify-center shadow-lg cursor-pointer transition-all duration-200 w-8 ${
+                className={`w-8 h-8 rounded-full glass-panel flex items-center justify-center shadow-lg cursor-pointer transition-all duration-200 ${
                   currentPage === 1 ? "border-indigo bg-indigo/10" : "hover:border-indigo/50 hover:bg-indigo/5"
                 }`}
                 aria-label="Go to page 1"

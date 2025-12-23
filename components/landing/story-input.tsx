@@ -149,8 +149,8 @@ export function StoryInput({
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto justify-start sm:justify-end">
-              <div className="relative dropdown-container z-[60]">
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-start sm:justify-end">
+              <div className="relative dropdown-container z-60">
                 <button
                   onClick={() => {
                     setShowStyleDropdown(!showStyleDropdown);
@@ -213,14 +213,14 @@ export function StoryInput({
 
       {showPreview !== null && previews[showPreview] && (
         <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-100 flex items-center justify-center p-4"
           onClick={() => setShowPreview(null)}
         >
-          <div className="relative max-w-2xl max-h-[80vh] glass-panel p-4 rounded-xl z-[101]">
+          <div className="relative max-w-2xl max-h-[80vh] glass-panel p-4 rounded-xl z-101">
             <Button
               variant="ghost"
               size="icon"
-              className="absolute top-2 right-2 h-8 w-8 hover:bg-white/10 z-[102]"
+              className="absolute top-2 right-2 h-8 w-8 hover:bg-white/10 z-102"
               onClick={() => setShowPreview(null)}
             >
               <X className="w-4 h-4" />
