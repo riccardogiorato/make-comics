@@ -3,7 +3,7 @@ import { stories, pages, type Story, type Page } from './schema';
 import { eq } from 'drizzle-orm';
 import { generateComicSlug } from './slug-generator';
 
-export async function createStory(data: { title: string; description?: string; userId?: string }): Promise<Story> {
+export async function createStory(data: { title: string; description?: string; userId: string }): Promise<Story> {
   // Generate a unique slug
   let slug = generateComicSlug();
   let attempts = 0;

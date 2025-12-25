@@ -7,7 +7,7 @@ export const stories = pgTable('stories', {
   title: text('title').notNull(),
   slug: text('slug').notNull().unique(),
   description: text('description'),
-  userId: uuid('user_id'), // Optional - for future Clerk auth
+  userId: uuid('user_id').notNull(), // Required Clerk user ID
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

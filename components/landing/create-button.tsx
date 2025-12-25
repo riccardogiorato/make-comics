@@ -6,6 +6,7 @@ import { ArrowRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { useS3Upload } from "next-s3-upload"
+import { useAuth, SignInButton } from "@clerk/nextjs"
 
 interface CreateButtonProps {
   prompt: string
@@ -19,6 +20,7 @@ export function CreateButton({ prompt, style, characterFiles }: CreateButtonProp
   const [loadingStep, setLoadingStep] = useState(0)
   const { toast } = useToast()
   const { uploadToS3 } = useS3Upload()
+  const { isSignedIn } = useAuth()
 
   useEffect(() => {
     if (!isLoading) return
@@ -98,23 +100,32 @@ export function CreateButton({ prompt, style, characterFiles }: CreateButtonProp
 
   return (
     <div className="pt-2">
-      <Button
-        onClick={handleCreate}
-        disabled={isLoading || !prompt.trim()}
-        className="w-full sm:w-auto sm:min-w-40 bg-white hover:bg-neutral-200 text-black px-8 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-3 tracking-tight"
-      >
-        {isLoading ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium tracking-tight">{loadingSteps[loadingStep]}</span>
-          </>
-        ) : (
-          <>
-            Generate
+      {isSignedIn ? (
+        <Button
+          onClick={handleCreate}
+          disabled={isLoading || !prompt.trim()}
+          className="w-full sm:w-auto sm:min-w-40 bg-white hover:bg-neutral-200 text-black px-8 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-3 tracking-tight"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm font-medium tracking-tight">{loadingSteps[loadingStep]}</span>
+            </>
+          ) : (
+            <>
+              Generate
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
+        </Button>
+      ) : (
+        <SignInButton mode="modal">
+          <Button className="w-full sm:w-auto sm:min-w-40 bg-white hover:bg-neutral-200 text-black px-8 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-3 tracking-tight">
+            Login to create your comic
             <ArrowRight className="w-4 h-4" />
-          </>
-        )}
-      </Button>
+          </Button>
+        </SignInButton>
+      )}
     </div>
   )
 }
