@@ -19,7 +19,7 @@ export function EditorToolbar({ title, onContinueStory, onInfoClick }: EditorToo
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/stories")}
           className="hover:bg-secondary text-muted-foreground hover:text-white flex-shrink-0"
         >
           <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />

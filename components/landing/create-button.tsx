@@ -24,7 +24,7 @@ export function CreateButton({
   const [loadingStep, setLoadingStep] = useState(0);
   const { toast } = useToast();
   const { uploadToS3 } = useS3Upload();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, isLoaded } = useAuth();
   const [hasApiKey, setHasApiKey] = useState(false);
 
   // Check if user has their own API key set
@@ -131,7 +131,9 @@ export function CreateButton({
 
   return (
     <div className="pt-2">
-      {isSignedIn ? (
+      {!isLoaded ? (
+        <div className="h-10" />
+      ) : isSignedIn ? (
         <div className="flex items-center justify-between gap-3 w-full">
           <Button
             onClick={handleCreate}
