@@ -1,7 +1,8 @@
 "use client"
 
-import { Plus, Loader2, Key, User } from "lucide-react"
+import { Plus, Loader2, Key } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { UserButton } from "@clerk/nextjs"
 
 interface PageData {
   id: number
@@ -75,13 +76,15 @@ export function PageSidebar({
           <Key className="w-4 h-4" />
         </Button>
 
-        {/* Avatar Circle - placeholder for future Clerk integration */}
-        <button
-          className="w-9 h-9 glass-panel rounded-full flex items-center justify-center text-muted-foreground hover:text-white transition-colors"
-          title="User Profile (Coming Soon)"
-        >
-          <User className="w-4 h-4" />
-        </button>
+        <div className="w-9 h-9 glass-panel glass-panel-hover rounded-md flex items-center justify-center text-muted-foreground hover:text-white transition-colors">
+          <UserButton
+            appearance={{
+              elements: {
+                avatarBox: "w-full h-full rounded-md",
+              },
+            }}
+          />
+        </div>
       </div>
     </aside>
   )
