@@ -10,7 +10,6 @@ import {
   getNextPageNumber,
   getStoryWithPagesBySlug,
   getLastPageImage,
-  getStoryCharacterImages,
 } from "@/lib/db-actions";
 import { freeTierRateLimit } from "@/lib/rate-limit";
 import { uploadImageToS3 } from "@/lib/s3-upload";
@@ -134,11 +133,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get story character images (up to 2 most recent)
-    const storyCharacterImages = await getStoryCharacterImages(story.id);
-    referenceImages.push(...storyCharacterImages.slice(-2)); // Take last 2
-
-    // Add current character images to references
+    // Use only the character images sent from the frontend (user's selection)
+    // These are already the most recent/relevant characters the user wants to use
     referenceImages.push(...characterImages);
 
     // Build the prompt with continuation context

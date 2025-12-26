@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Upload, X, Loader2 } from "lucide-react";
+import { Upload, X, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,13 @@ import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { validateFileForUpload, generateFilePreview } from "@/lib/file-utils";
 import { useS3Upload } from "next-s3-upload";
 
+interface CharacterItem {
+  url: string;
+  isNew?: boolean;
+  file?: File;
+  preview?: string;
+}
+
 interface GeneratePageModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -25,6 +32,9 @@ interface GeneratePageModalProps {
   pageNumber: number;
   isRedrawMode?: boolean;
   existingPrompt?: string;
+  existingCharacters?: string[]; // All characters from the story
+  lastPageCharacters?: string[]; // Characters used on the last page
+  previousPageCharacters?: string[]; // Characters used on the previous page (if last page had < 2)
 }
 
 export function GeneratePageModal({
@@ -34,26 +44,80 @@ export function GeneratePageModal({
   pageNumber,
   isRedrawMode = false,
   existingPrompt = "",
+  existingCharacters = [],
+  lastPageCharacters = [],
+  previousPageCharacters = [],
 }: GeneratePageModalProps) {
   const [prompt, setPrompt] = useState("");
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
-  const [showPreview, setShowPreview] = useState<number | null>(null);
+  const [characters, setCharacters] = useState<CharacterItem[]>([]);
+  const [selectedCharacterIndices, setSelectedCharacterIndices] = useState<
+    Set<number>
+  >(new Set());
+  const [showPreview, setShowPreview] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { uploadToS3 } = useS3Upload();
 
-  // Reset form when modal opens
+  // Reset form and initialize characters when modal opens
   useEffect(() => {
     if (isOpen) {
       setPrompt(isRedrawMode ? existingPrompt : "");
-      setUploadedFiles([]);
-      setPreviews([]);
       setShowPreview(null);
       setIsGenerating(false);
+
+      // Initialize characters list with existing ones
+      const existingItems: CharacterItem[] = existingCharacters.map((url) => ({
+        url,
+        isNew: false,
+      }));
+      setCharacters(existingItems);
+
+      // Smart selection: Use last 2 characters from last page, or combine with previous page if needed
+      const defaultSelected = new Set<number>();
+      const charactersToSelect: string[] = [];
+
+      // If last page has 2 characters, use those
+      if (lastPageCharacters.length >= 2) {
+        charactersToSelect.push(...lastPageCharacters.slice(0, 2));
+      } else {
+        // Start with last page characters (if any)
+        charactersToSelect.push(...lastPageCharacters);
+
+        // If we have less than 2, add from previous page (avoiding duplicates)
+        if (
+          charactersToSelect.length < 2 &&
+          previousPageCharacters.length > 0
+        ) {
+          for (const charUrl of previousPageCharacters) {
+            if (
+              !charactersToSelect.includes(charUrl) &&
+              charactersToSelect.length < 2
+            ) {
+              charactersToSelect.push(charUrl);
+            }
+          }
+        }
+      }
+
+      // Find indices of characters to select (preserving order in existingItems)
+      charactersToSelect.forEach((charUrl) => {
+        const index = existingItems.findIndex((item) => item.url === charUrl);
+        if (index !== -1) {
+          defaultSelected.add(index);
+        }
+      });
+
+      setSelectedCharacterIndices(defaultSelected);
     }
-  }, [isOpen, isRedrawMode, existingPrompt]);
+  }, [
+    isOpen,
+    isRedrawMode,
+    existingPrompt,
+    existingCharacters,
+    lastPageCharacters,
+    previousPageCharacters,
+  ]);
 
   // Keyboard shortcut for form submission (disabled during generation)
   useKeyboardShortcut(
@@ -92,24 +156,85 @@ export function GeneratePageModal({
 
     if (validFiles.length === 0) return;
 
-    const totalFiles = [...uploadedFiles, ...validFiles].slice(0, 2);
-    setUploadedFiles(totalFiles);
-
-    const newPreviews = await Promise.all(
-      totalFiles.map((file) => generateFilePreview(file))
+    // Create new character items for the uploaded files
+    const newCharacterItems: CharacterItem[] = await Promise.all(
+      validFiles.map(async (file) => {
+        const preview = await generateFilePreview(file);
+        return {
+          url: "", // Will be set after S3 upload
+          isNew: true,
+          file,
+          preview,
+        };
+      })
     );
-    setPreviews(newPreviews);
-  };
 
-  const removeFile = (index: number) => {
-    const newFiles = uploadedFiles.filter((_, i) => i !== index);
-    const newPreviews = previews.filter((_, i) => i !== index);
-    setUploadedFiles(newFiles);
-    setPreviews(newPreviews);
-    setShowPreview(null);
+    // Add new characters to the list
+    setCharacters((prev) => {
+      const updated = [...prev, ...newCharacterItems];
+      const newSelected = new Set(selectedCharacterIndices);
+
+      // Add new characters to selection
+      newCharacterItems.forEach((_, idx) => {
+        newSelected.add(prev.length + idx);
+      });
+
+      // If we have more than 2 selected, deselect the oldest ones (keep most recent 2)
+      if (newSelected.size > 2) {
+        const selectedArray = Array.from(newSelected).sort((a, b) => b - a);
+        const toKeep = selectedArray.slice(0, 2);
+        newSelected.clear();
+        toKeep.forEach((idx) => newSelected.add(idx));
+      }
+
+      setSelectedCharacterIndices(newSelected);
+      return updated;
+    });
+
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const toggleCharacterSelection = (index: number) => {
+    setSelectedCharacterIndices((prev) => {
+      const newSelected = new Set(prev);
+      if (newSelected.has(index)) {
+        // Allow deselection even if only 2 are selected
+        newSelected.delete(index);
+      } else {
+        // If already at max (2), remove the oldest selected first
+        if (newSelected.size >= 2) {
+          const selectedArray = Array.from(newSelected).sort((a, b) => a - b);
+          newSelected.delete(selectedArray[0]); // Remove oldest
+        }
+        newSelected.add(index);
+      }
+      return newSelected;
+    });
+  };
+
+  const removeCharacter = (index: number) => {
+    setCharacters((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
+
+      // Adjust selected indices
+      setSelectedCharacterIndices((prevSelected) => {
+        const newSelected = new Set<number>();
+        prevSelected.forEach((idx) => {
+          if (idx < index) {
+            newSelected.add(idx);
+          } else if (idx > index) {
+            newSelected.add(idx - 1);
+          }
+          // Skip the removed index
+        });
+        return newSelected;
+      });
+
+      return updated;
+    });
+    setShowPreview(null);
   };
 
   const handleGenerate = async () => {
@@ -117,9 +242,24 @@ export function GeneratePageModal({
     setIsGenerating(true);
 
     try {
-      // Upload files to S3 and get URLs
+      // Get selected characters
+      const selectedCharacters = Array.from(selectedCharacterIndices)
+        .sort((a, b) => a - b)
+        .map((idx) => characters[idx])
+        .filter(Boolean);
+
+      // Upload new files to S3 and get URLs, reuse existing URLs
       const characterUrls = await Promise.all(
-        uploadedFiles.map((file) => uploadToS3(file).then(({ url }) => url))
+        selectedCharacters.map(async (char) => {
+          if (char.isNew && char.file) {
+            // Upload new file to S3
+            const { url } = await uploadToS3(char.file);
+            return url;
+          } else {
+            // Reuse existing URL
+            return char.url;
+          }
+        })
       );
 
       await onGenerate({
@@ -191,60 +331,84 @@ export function GeneratePageModal({
                 />
 
                 <div className="mt-3 pt-3 border-t border-border/30 space-y-3">
-                  {/* Character Upload */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      {previews.length > 0 ? (
-                        <div className="flex items-center gap-2">
-                          {previews.map((preview, index) => (
-                            <div key={index} className="relative group/thumb">
+                  {/* Character Selection */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase text-muted-foreground tracking-[0.02em] font-medium">
+                      Characters (select up to 2)
+                    </label>
+
+                    {/* Existing and new characters list */}
+                    {characters.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {characters.map((char, index) => {
+                          const isSelected =
+                            selectedCharacterIndices.has(index);
+                          const imageUrl = char.preview || char.url;
+
+                          return (
+                            <div
+                              key={index}
+                              className={`relative group/thumb cursor-pointer ${
+                                isSelected ? "ring-2 ring-indigo-500" : ""
+                              }`}
+                            >
                               <button
-                                onClick={() => setShowPreview(index)}
-                                className="w-8 h-8 rounded-md overflow-hidden border border-border/50 hover:border-indigo/50 transition-colors"
+                                type="button"
+                                onClick={() => toggleCharacterSelection(index)}
+                                onDoubleClick={() => setShowPreview(imageUrl)}
+                                disabled={isGenerating}
+                                className="w-10 h-10 rounded-md overflow-hidden border-2 border-transparent hover:border-indigo/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed relative"
+                                title="Click to select/deselect, double-click to preview"
                               >
                                 <img
-                                  src={preview || "/placeholder.svg"}
-                                  alt={`New character ${index + 1}`}
+                                  src={imageUrl || "/placeholder.svg"}
+                                  alt={`Character ${index + 1}`}
                                   className="w-full h-full object-cover"
                                 />
+                                {/* Selection indicator */}
+                                {isSelected && (
+                                  <div className="absolute top-0 right-0 w-4 h-4 bg-indigo-500 rounded-full flex items-center justify-center pointer-events-none z-10 border-2 border-background">
+                                    <Check className="w-2.5 h-2.5 text-white" />
+                                  </div>
+                                )}
                               </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeFile(index);
-                                }}
-                                disabled={isGenerating}
-                                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity disabled:opacity-50"
-                              >
-                                <X className="w-2.5 h-2.5 text-white" />
-                              </button>
+
+                              {/* Remove button (only for new uploads) */}
+                              {char.isNew && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeCharacter(index);
+                                  }}
+                                  disabled={isGenerating}
+                                  className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity disabled:opacity-50 z-20"
+                                >
+                                  <X className="w-2.5 h-2.5 text-white" />
+                                </button>
+                              )}
                             </div>
-                          ))}
-                          {uploadedFiles.length < 2 && (
-                            <button
-                              onClick={() =>
-                                !isGenerating && fileInputRef.current?.click()
-                              }
-                              disabled={isGenerating}
-                              className="w-8 h-8 rounded-md border border-dashed border-border/50 hover:border-indigo/50 flex items-center justify-center text-muted-foreground hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() =>
-                            !isGenerating && fileInputRef.current?.click()
-                          }
-                          disabled={isGenerating}
-                          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>Add new characters (optional)</span>
-                        </button>
-                      )}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Upload new character button */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !isGenerating && fileInputRef.current?.click()
+                      }
+                      disabled={isGenerating}
+                      className="flex items-center gap-2 text-xs text-muted-foreground hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>
+                        {characters.length === 0
+                          ? "Add characters (optional, max 2)"
+                          : "Upload new character"}
+                      </span>
+                    </button>
                   </div>
 
                   <input
@@ -262,7 +426,9 @@ export function GeneratePageModal({
             <div className="text-xs text-muted-foreground/70">
               {isRedrawMode
                 ? "This will replace the current page with a new version. Previous pages and characters are automatically referenced."
-                : "Automatically references previous pages and existing characters from your story."}
+                : selectedCharacterIndices.size > 0
+                ? `${selectedCharacterIndices.size} character(s) selected. Click to toggle selection.`
+                : "No characters selected. Click on characters above to select them, or upload new ones."}
             </div>
 
             <Button
@@ -286,7 +452,7 @@ export function GeneratePageModal({
       </Dialog>
 
       {/* Character Preview Modal */}
-      {showPreview !== null && previews[showPreview] && (
+      {showPreview && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-sm z-100 flex items-center justify-center p-4"
           onClick={() => setShowPreview(null)}
@@ -301,7 +467,7 @@ export function GeneratePageModal({
               <X className="w-4 h-4" />
             </Button>
             <img
-              src={previews[showPreview] || "/placeholder.svg"}
+              src={showPreview || "/placeholder.svg"}
               alt="Character preview"
               className="w-full h-full object-contain rounded-lg"
             />

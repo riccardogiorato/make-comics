@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
 import { Navbar } from "@/components/landing/navbar";
 import { StoryLoader } from "@/components/ui/story-loader";
+import { COMIC_STYLES } from "@/lib/constants";
 
 interface Story {
   id: string;
   title: string;
   slug: string;
+  style: string;
   createdAt: string;
   pageCount: number;
   coverImage: string | null;
@@ -131,7 +133,7 @@ export default function StoriesPage() {
                      <button
                        key={story.id}
                        onClick={() => router.push(`/editor/${story.slug}`)}
-                       className={`opacity-0 animate-fade-in-up group relative glass-panel p-3 rounded-lg hover:shadow-indigo/20 hover:shadow-2xl transition-all duration-500 hover:scale-[1.05] hover:-translate-y-2 border border-border/50 hover:border-indigo/30 hover:bg-white/[0.02] backdrop-blur-sm`}
+                        className={`opacity-0 animate-fade-in-up group relative glass-panel p-3 rounded-lg hover:shadow-indigo/20 hover:shadow-2xl transition-all duration-500 hover:scale-[1.05] hover:-translate-y-2 border border-border/50 hover:border-indigo/30 hover:bg-white/[0.02] backdrop-blur-sm focus:outline-none`}
                        style={{ animationDelay: `${200 + index * 100}ms` }}
                      >
                        <div className="w-full h-full bg-neutral-900 border-4 border-black overflow-hidden relative group-hover:border-indigo/30 transition-colors duration-300">
@@ -157,14 +159,14 @@ export default function StoriesPage() {
                              {/* Subtle glow effect on hover */}
                              <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-gradient-to-r from-indigo/20 via-transparent to-emerald/20 transition-opacity duration-500" />
 
-                             <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/80 text-white text-[9px] font-mono uppercase tracking-widest border border-white/20 group-hover:bg-indigo/80 group-hover:border-indigo/40 transition-colors duration-300">
-                               {story.pageCount}p
-                             </div>
+                              <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/80 text-white text-[9px] font-mono uppercase tracking-widest border border-white/20 group-hover:bg-indigo/80 group-hover:border-indigo/40 transition-colors duration-300">
+                                {COMIC_STYLES.find(s => s.id === story.style)?.name.toUpperCase() || story.style.toUpperCase()}
+                              </div>
 
                              <div className="absolute bottom-0 left-0 right-0 p-3 text-left">
-                               <h3 className="font-display text-sm text-white leading-tight line-clamp-2 mb-1 group-hover:text-indigo-100 transition-colors duration-300">
-                                 {story.title}
-                               </h3>
+                                <h3 className="font-display text-sm text-white leading-tight line-clamp-1 mb-1 group-hover:text-indigo-100 transition-colors duration-300">
+                                  {story.title}
+                                </h3>
                                <p className="text-[10px] text-white/60 font-mono uppercase tracking-wider group-hover:text-white/80 transition-colors duration-300">
                                  {new Date(story.createdAt).toLocaleDateString()}
                                </p>

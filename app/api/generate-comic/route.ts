@@ -119,9 +119,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Get story character images (up to 2 most recent)
-      const storyCharacterImages = await getStoryCharacterImages(storyId);
-      referenceImages.push(...storyCharacterImages.slice(-2)); // Take last 2
+      // For continuation pages, character images are sent from frontend
+      // No need to fetch separately - frontend handles selection
     } else {
       // New story: no previous page reference
       // Create story with temporary title, will update with generated title
@@ -140,7 +139,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Add current character images to references
+    // Use only the character images sent from the frontend
     referenceImages.push(...characterImages);
 
     const dimensions = FIXED_DIMENSIONS;

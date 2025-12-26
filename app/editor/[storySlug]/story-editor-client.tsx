@@ -319,6 +319,15 @@ export function StoryEditorClient() {
 
     const result = await response.json();
 
+    // Update character images list with new ones
+    const newCharacterUrls = data.characterUrls || [];
+    setExistingCharacterImages((prev) => {
+      const combined = [...prev, ...newCharacterUrls];
+      // Remove duplicates while preserving order
+      const unique = Array.from(new Set(combined));
+      return unique;
+    });
+
     setPages((prevPages) => [
       ...prevPages,
       {
@@ -400,6 +409,17 @@ export function StoryEditorClient() {
         onClose={() => setShowGenerateModal(false)}
         onGenerate={handleGeneratePage}
         pageNumber={pages.length + 1}
+        existingCharacters={existingCharacterImages}
+        lastPageCharacters={
+          pages.length > 0 && pages[pages.length - 1]?.characterUploads
+            ? pages[pages.length - 1].characterUploads || []
+            : []
+        }
+        previousPageCharacters={
+          pages.length > 1 && pages[pages.length - 2]?.characterUploads
+            ? pages[pages.length - 2].characterUploads || []
+            : []
+        }
       />
       <PageInfoSheet
         isOpen={showInfoSheet}
@@ -412,8 +432,9 @@ export function StoryEditorClient() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Page</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete page {pageToDelete !== null ? pageToDelete + 1 : ""}?
-              This action cannot be undone.
+              Are you sure you want to delete page{" "}
+              {pageToDelete !== null ? pageToDelete + 1 : ""}? This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -430,4 +451,3 @@ export function StoryEditorClient() {
     </div>
   );
 }
-
