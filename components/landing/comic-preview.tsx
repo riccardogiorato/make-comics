@@ -6,13 +6,13 @@ export function ComicPreview({
   goToPage: (page: number) => void;
 }) {
   return (
-    <div className="hidden lg:flex w-full lg:w-1/2 border-l border-border relative items-center justify-center overflow-hidden">
+    <div className="flex w-full lg:w-1/2 mt-12 lg:mt-0 border-t lg:border-t-0 lg:border-l border-border relative items-center justify-center overflow-hidden py-10 lg:py-0">
       {/* Dot grid background */}
       <div className="absolute inset-0 dot-grid opacity-30" />
 
       <div className="relative z-10 flex flex-col gap-4">
-        {/* Background floating comics - less prominent - hidden on mobile */}
-        <div className="hidden lg:block absolute -top-32 -left-20 opacity-20 animate-float animation-delay-300">
+        {/* Background floating comics - less prominent */}
+        <div className="block absolute -top-32 -left-20 opacity-20 animate-float animation-delay-300">
           <div className="bg-white w-48 aspect-3/4 p-2 shadow-2xl rounded-sm rotate-12">
             <div className="w-full h-full bg-neutral-900 border-2 border-black overflow-hidden">
               <img
@@ -24,7 +24,7 @@ export function ComicPreview({
           </div>
         </div>
 
-        <div className="hidden lg:block absolute -bottom-40 left-10 opacity-15 animate-float animation-delay-500">
+        <div className="block absolute -bottom-40 left-10 opacity-15 animate-float animation-delay-500">
           <div className="bg-white w-56 aspect-3/4 p-2 shadow-2xl rounded-sm -rotate-6">
             <div className="w-full h-full bg-neutral-900 border-2 border-black overflow-hidden">
               <img
@@ -36,7 +36,7 @@ export function ComicPreview({
           </div>
         </div>
 
-        <div className="hidden lg:block absolute top-20 -right-32 opacity-25 animate-float animation-delay-700">
+        <div className="block absolute top-20 -right-32 opacity-25 animate-float animation-delay-700">
           <div className="bg-white w-52 aspect-3/4 p-2 shadow-2xl rounded-sm -rotate-12">
             <div className="w-full h-full bg-neutral-900 border-2 border-black overflow-hidden">
               <img
@@ -48,7 +48,7 @@ export function ComicPreview({
           </div>
         </div>
 
-        <div className="hidden lg:block absolute bottom-10 -right-24 opacity-18 animate-float animation-delay-1000">
+        <div className="block absolute bottom-10 -right-24 opacity-18 animate-float animation-delay-1000">
           <div className="bg-white w-44 aspect-3/4 p-2 shadow-2xl rounded-sm rotate-6">
             <div className="w-full h-full bg-neutral-900 border-4 border-black overflow-hidden relative">
               <img
@@ -83,7 +83,7 @@ export function ComicPreview({
                     American Modern
                   </div>
                   <div className="absolute bottom-8 left-4 right-8 bg-white text-black p-2 text-[10px] font-medium border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)] leading-tight transform rotate-1">
-                    {"\"And a hero shall rise!\""}
+                    {'"And a hero shall rise!"'}
                   </div>
                 </div>
 
@@ -105,7 +105,7 @@ export function ComicPreview({
                     Manga
                   </div>
                   <div className="absolute bottom-8 left-4 right-8 bg-white text-black p-2 text-[10px] font-medium border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)] leading-tight transform -rotate-1">
-                    {"\"The battle begins!\""}
+                    {'"The battle begins!"'}
                   </div>
                 </div>
 
@@ -126,7 +126,7 @@ export function ComicPreview({
                     Noir
                   </div>
                   <div className="absolute bottom-8 left-4 right-8 bg-white text-black p-2 text-[10px] font-medium border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)] leading-tight transform -rotate-1">
-                    {"\"The city needs a hero...\""}
+                    {'"The city needs a hero..."'}
                   </div>
                 </div>
 
@@ -148,7 +148,7 @@ export function ComicPreview({
                     Vintage
                   </div>
                   <div className="absolute bottom-8 left-4 right-8 bg-white text-black p-2 text-[10px] font-medium border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)] leading-tight transform -rotate-1">
-                    {"\"Super Action\""}
+                    {'"Super Action"'}
                   </div>
                 </div>
               </div>
