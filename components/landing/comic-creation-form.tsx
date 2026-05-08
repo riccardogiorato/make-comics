@@ -45,7 +45,9 @@ export function ComicCreationForm({
   const { isSignedIn, isLoaded } = useAuth();
   const { openSignIn } = useClerk();
   const [apiKey, setApiKey] = useApiKey();
-  const hasApiKey = !!apiKey;
+  const personalApiKeysEnabled =
+    process.env.NEXT_PUBLIC_IMAGE_PROVIDER === "together";
+  const hasApiKey = personalApiKeysEnabled && !!apiKey;
   const [previews, setPreviews] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState<number | null>(null);
   const [showStyleDropdown, setShowStyleDropdown] = useState(false);
@@ -233,7 +235,15 @@ export function ComicCreationForm({
         }
 
         if (creditsData.creditsRemaining === 0) {
-          setShowApiModal(true);
+          if (personalApiKeysEnabled) {
+            setShowApiModal(true);
+          } else {
+            toast({
+              title: "Weekly credits used",
+              description: "Please try again after your credits reset.",
+              variant: "destructive",
+            });
+          }
           clearInterval(stepInterval);
           setIsLoading(false);
           return;
@@ -504,7 +514,7 @@ export function ComicCreationForm({
             </Button>
             <div className="text-xs text-muted-foreground whitespace-nowrap">
               {hasApiKey ? (
-                <>Using your API key (~$0.01 per comic)</>
+                <>Using your image API key</>
               ) : (
                 <>{creditsRemaining !== null ? `${creditsRemaining} credit${creditsRemaining === 1 ? '' : 's'} remaining` : 'Checking credits...'}</>
               )}

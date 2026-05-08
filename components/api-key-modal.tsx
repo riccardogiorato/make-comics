@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
-import { TOGETHER_LINK } from "@/lib/utils"
+import { IMAGE_PROVIDER_LINK } from "@/lib/utils"
 import { useApiKey } from "@/hooks/use-api-key"
 
 interface ApiKeyModalProps {
@@ -72,8 +72,8 @@ export function ApiKeyModal({ isOpen, onClose, onSubmit }: ApiKeyModalProps) {
 
           <DialogDescription className="text-center text-muted-foreground">
             {existingKey
-              ? "Update your Together API key or add a new one. You can also delete your existing key."
-              : "You've used all your weekly credits! Add your Together API key for unlimited generation."}
+              ? "Update your image provider API key or add a new one. You can also delete your existing key."
+              : "You've used all your weekly credits! Add an image provider API key for unlimited generation."}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,12 +100,12 @@ export function ApiKeyModal({ isOpen, onClose, onSubmit }: ApiKeyModalProps) {
           </div>
 
           <a
-            href={TOGETHER_LINK}
+            href={IMAGE_PROVIDER_LINK}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-indigo hover:text-indigo-light flex items-center gap-1.5 transition-colors"
           >
-            Get your Together API key
+            Learn about the image provider
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
 

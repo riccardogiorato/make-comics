@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server";
-import Together from "together-ai";
 import { auth } from "@clerk/nextjs/server";
 import {
   updatePage,
@@ -13,25 +12,15 @@ import {
   deleteStory,
 } from "@/lib/db-actions";
 import { freeTierRateLimit } from "@/lib/rate-limit";
-import { COMIC_STYLES } from "@/lib/constants";
 import { uploadImageToS3 } from "@/lib/s3-upload";
 import { buildComicPrompt } from "@/lib/prompt";
+import { generateComicImage, getImageProviderConfig } from "@/lib/image-provider";
 import {
   isContentPolicyViolation,
   getContentPolicyErrorMessage,
 } from "@/lib/utils";
 
-const NEW_MODEL = false;
-
-const IMAGE_MODEL = NEW_MODEL
-  ? "google/gemini-3-pro-image"
-  : "google/flash-image-2.5";
-
-const FIXED_DIMENSIONS = NEW_MODEL
-  ? { width: 896, height: 1200 }
-  : { width: 864, height: 1184 };
-
-const TEXT_MODEL = "Qwen/Qwen3-Next-80B-A3B-Instruct";
+const FIXED_DIMENSIONS = { width: 864, height: 1184 };
 
 export async function POST(request: NextRequest) {
   try {
@@ -61,18 +50,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Determine which API key to use
-    let finalApiKey = apiKey;
-    const isUsingFreeTier = !apiKey;
-    const usesOwnApiKey = !!apiKey;
+    const imageProvider = getImageProviderConfig();
+    const usesOwnApiKey = imageProvider.requiresApiKey && !!apiKey;
+    const isUsingFreeTier = !usesOwnApiKey;
 
-    if (isUsingFreeTier) {
-      // Use default API key for free tier
-      finalApiKey = process.env.TOGETHER_API_KEY;
-      if (!finalApiKey) {
+    if (imageProvider.requiresApiKey && isUsingFreeTier) {
+      if (!process.env.TOGETHER_API_KEY) {
         return NextResponse.json(
           {
-            error: "Server configuration error - default API key not available",
+            error: "Server configuration error - image API key not available",
           },
           { status: 500 },
         );
@@ -140,92 +126,7 @@ export async function POST(request: NextRequest) {
       previousContext,
     });
 
-    const client = new Together({ apiKey: finalApiKey });
-
-    // Generate title and description in parallel with image generation (only for new stories)
-    let titleGenerationPromise: Promise<{
-      title: string;
-      description: string;
-    }> | null = null;
-    if (!storyId) {
-      titleGenerationPromise = (async () => {
-        try {
-          const titlePrompt = `Based on this comic book prompt, generate a compelling title and description for the comic book.
-
-Prompt: "${prompt}"
-Style: ${COMIC_STYLES.find((s) => s.id === style)?.name || style}
-
-Generate:
-1. A catchy, engaging title (maximum 60 characters)
-2. A brief description (2-3 sentences, maximum 200 characters)
-
-Format your response as JSON:
-{
-  "title": "Title here",
-  "description": "Description here"
-}
-
-Only return the JSON, no other text.`;
-
-          const textResponse = await client.chat.completions.create({
-            model: TEXT_MODEL,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are a creative assistant that generates compelling comic book titles and descriptions. Always respond with valid JSON only.",
-              },
-              {
-                role: "user",
-                content: titlePrompt,
-              },
-            ],
-            temperature: 0.8,
-            max_tokens: 300,
-          });
-
-          const content = textResponse.choices[0]?.message?.content?.trim();
-          if (!content) {
-            throw new Error("No response from text generation");
-          }
-
-          // Extract JSON from response (in case there's extra text)
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) {
-            throw new Error("No JSON found in response");
-          }
-
-          const parsed = JSON.parse(jsonMatch[0]);
-          const rawTitle =
-            parsed.title?.trim() ||
-            (prompt.length > 50 ? prompt.substring(0, 50) + "..." : prompt);
-          const rawDescription = parsed.description?.trim();
-
-          // Enforce character limits
-          const title =
-            rawTitle.length > 60 ? rawTitle.substring(0, 57) + "..." : rawTitle;
-          const description =
-            rawDescription && rawDescription.length > 200
-              ? rawDescription.substring(0, 197) + "..."
-              : rawDescription;
-
-          return {
-            title,
-            description: description || undefined,
-          };
-        } catch (error) {
-          console.error("Error generating title and description:", error);
-          // Fallback to prompt-based title
-          return {
-            title:
-              prompt.length > 50 ? prompt.substring(0, 50) + "..." : prompt,
-            description: undefined,
-          };
-        }
-      })();
-    }
-
-    let response;
+    let generatedImageUrl: string;
     try {
       console.log("Starting image generation for ...");
       console.dir({
@@ -233,21 +134,21 @@ Only return the JSON, no other text.`;
         referenceImages,
       });
       const startTime = Date.now();
-      response = await client.images.generate({
-        model: IMAGE_MODEL,
+      const result = await generateComicImage({
         prompt: fullPrompt,
         width: dimensions.width,
         height: dimensions.height,
         temperature: 0.1, // Lower temperature for more consistent face matching
-        reference_images:
-          referenceImages.length > 0 ? referenceImages : undefined,
+        referenceImages,
+        apiKey: usesOwnApiKey ? apiKey : undefined,
       });
+      generatedImageUrl = result.imageUrl;
       const endTime = Date.now();
       const durationMs = endTime - startTime;
       const durationSeconds = (durationMs / 1000).toFixed(2);
       console.log(`Image generation completed in ${durationSeconds} seconds`);
     } catch (error) {
-      console.error("Together AI API error:", error);
+      console.error("Image generation API error:", error);
 
       // Clean up DB records if generation failed
       try {
@@ -285,7 +186,7 @@ Only return the JSON, no other text.`;
           return NextResponse.json(
             {
               error:
-                "Insufficient API credits. Please add credits to your Together.ai account at https://api.together.ai/settings/billing or update your API key.",
+                "Insufficient image generation API credits. Please update your image provider or API key.",
               errorType: "credit_limit",
             },
             { status: 402 },
@@ -310,28 +211,17 @@ Only return the JSON, no other text.`;
       );
     }
 
-    if (!response.data || !response.data[0] || !response.data[0].url) {
-      return NextResponse.json(
-        { error: "No image URL in response" },
-        { status: 500 },
-      );
-    }
-
-    const imageUrl = response.data[0].url;
-
     // Upload image to S3 for permanent storage
     const s3Key = `${storyId || story!.id}/page-${
       page.pageNumber
     }-${Date.now()}.jpg`;
-    const s3ImageUrl = await uploadImageToS3(imageUrl, s3Key);
+    const s3ImageUrl = await uploadImageToS3(generatedImageUrl, s3Key);
 
-    // Wait for title/description generation if it's a new story
     let generatedTitle: string | undefined;
     let generatedDescription: string | undefined;
-    if (titleGenerationPromise) {
-      const titleData = await titleGenerationPromise;
-      generatedTitle = titleData.title;
-      generatedDescription = titleData.description;
+    if (!storyId) {
+      generatedTitle = buildFallbackStoryTitle(prompt);
+      generatedDescription = buildFallbackStoryDescription(prompt);
 
       // Update story with generated title and description
       try {
@@ -399,4 +289,18 @@ Only return the JSON, no other text.`;
       { status: 500 },
     );
   }
+}
+
+function buildFallbackStoryTitle(prompt: string): string {
+  const compact = prompt.replace(/\s+/g, " ").trim();
+  return compact.length > 60 ? `${compact.substring(0, 57)}...` : compact;
+}
+
+function buildFallbackStoryDescription(prompt: string): string | undefined {
+  const compact = prompt.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return undefined;
+  }
+
+  return compact.length > 200 ? `${compact.substring(0, 197)}...` : compact;
 }

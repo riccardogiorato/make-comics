@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { TOGETHER_LINK } from "@/lib/utils";
+import { IMAGE_PROVIDER_LINK, IMAGE_PROVIDER_NAME } from "@/lib/utils";
 import { Github, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { FeedbackModal } from "@/components/feedback-modal";
@@ -22,14 +22,14 @@ export function Footer() {
       <footer className="h-8 border-t border-border/50 bg-background flex items-center justify-between px-6 text-[10px] text-muted-foreground select-none">
         <div className="flex items-center gap-4">
           <span>
-            Made & powered by{" "}
+            Image generation by{" "}
             <Link
-              href={TOGETHER_LINK}
+              href={IMAGE_PROVIDER_LINK}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors text-white"
             >
-              Together.ai
+              {IMAGE_PROVIDER_NAME}
             </Link>
           </span>
         </div>
