@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,13 @@ import {
   Download,
   Trash2,
   BookOpen,
+  ArrowDownNarrowWide,
+  ArrowUpNarrowWide,
+  CalendarArrowDown,
+  ArrowDownAZ,
+  ArrowDownZA,
+  Check,
+  ChevronDown,
 } from "lucide-react";
 import { Navbar } from "@/components/landing/navbar";
 import { StoryLoader } from "@/components/ui/story-loader";
@@ -38,14 +45,25 @@ interface Story {
   lastUpdated?: string;
 }
 
-type SortBy = "updated" | "created" | "title";
+type SortBy =
+  | "updated-desc"
+  | "updated-asc"
+  | "created-desc"
+  | "title-asc"
+  | "title-desc";
 
 type StyleFilter = "all" | string;
 
-const SORT_OPTIONS: { value: SortBy; label: string }[] = [
-  { value: "updated", label: "Last Updated" },
-  { value: "created", label: "Newest Created" },
-  { value: "title", label: "By Title" },
+const SORT_OPTIONS: {
+  value: SortBy;
+  label: string;
+  icon: "arrow-down-narrow-wide" | "arrow-up-narrow-wide" | "calendar-arrow-down" | "arrow-down-a-z" | "arrow-down-z-a";
+}[] = [
+  { value: "updated-desc", label: "Recent", icon: "arrow-down-narrow-wide" },
+  { value: "updated-asc", label: "Oldest", icon: "arrow-up-narrow-wide" },
+  { value: "created-desc", label: "Created", icon: "calendar-arrow-down" },
+  { value: "title-asc", label: "A → Z", icon: "arrow-down-a-z" },
+  { value: "title-desc", label: "Z → A", icon: "arrow-down-z-a" },
 ];
 
 function getStyleFilterOptions(stories: Story[]) {
@@ -111,7 +129,31 @@ export default function StoriesPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [styleFilter, setStyleFilter] = useState<StyleFilter>("all");
-  const [sortBy, setSortBy] = useState<SortBy>("updated");
+  const [sortBy, setSortBy] = useState<SortBy>("updated-desc");
+
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const styleRef = useRef<HTMLDivElement>(null);
+  const sortRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        styleRef.current &&
+        !styleRef.current.contains(event.target as Node)
+      ) {
+        setStyleOpen(false);
+      }
+      if (
+        sortRef.current &&
+        !sortRef.current.contains(event.target as Node)
+      ) {
+        setSortOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     fetchStories();
@@ -183,19 +225,24 @@ export default function StoriesPage() {
     }
 
     result.sort((a, b) => {
-      if (sortBy === "title") {
-        return a.title.localeCompare(b.title);
-      }
+      const aTime = new Date(a.lastUpdated ?? a.createdAt).getTime();
+      const bTime = new Date(b.lastUpdated ?? b.createdAt).getTime();
+      const aCreated = new Date(a.createdAt).getTime();
+      const bCreated = new Date(b.createdAt).getTime();
 
-      const aTime =
-        sortBy === "updated"
-          ? new Date(a.lastUpdated ?? a.createdAt).getTime()
-          : new Date(a.createdAt).getTime();
-      const bTime =
-        sortBy === "updated"
-          ? new Date(b.lastUpdated ?? b.createdAt).getTime()
-          : new Date(b.createdAt).getTime();
-      return bTime - aTime;
+      switch (sortBy) {
+        case "title-asc":
+          return a.title.localeCompare(b.title);
+        case "title-desc":
+          return b.title.localeCompare(a.title);
+        case "updated-asc":
+          return aTime - bTime;
+        case "created-desc":
+          return bCreated - aCreated;
+        case "updated-desc":
+        default:
+          return bTime - aTime;
+      }
     });
 
     return result;
@@ -252,7 +299,7 @@ export default function StoriesPage() {
       <main className="flex-1 flex flex-col min-h-[calc(100vh-4rem)]">
         <div className="w-full px-4 sm:px-6 lg:px-12 xl:px-20 py-4 sm:py-6 relative">
           <div className="max-w-7xl mx-auto w-full z-10 py-8">
-            <div className="opacity-0 animate-fade-in-up animation-delay-100 mb-10">
+            <div className="opacity-0 animate-fade-in-up animation-delay-100 mb-10 relative z-30">
               <div className="mb-4">
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-heading font-semibold text-foreground mb-3 tracking-tight">
                   Your Comic Library
@@ -275,36 +322,156 @@ export default function StoriesPage() {
                   />
                 </div>
                 <div className="flex gap-3">
-                  <Select
-                    value={styleFilter}
-                    onValueChange={(v) => setStyleFilter(v as StyleFilter)}
-                  >
-                    <SelectTrigger className="h-10 min-w-44 gap-2 bg-input/30">
-                      <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
-                      <SelectValue placeholder="Filter by style" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {styleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div ref={styleRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStyleOpen(!styleOpen);
+                        setSortOpen(false);
+                      }}
+                      className={`flex items-center gap-2 h-10 px-3 rounded-md bg-input/30 text-sm font-medium transition-all duration-150 min-w-44 ${
+                        styleOpen
+                          ? "border border-indigo/60 ring-2 ring-indigo/30 text-foreground"
+                          : styleFilter !== "all"
+                            ? "border border-indigo/40 text-foreground"
+                            : "border border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-4 h-4" />
+                      <span className="flex-1 text-left truncate">
+                        {styleFilter === "all"
+                          ? "All Styles"
+                          : getStyleName(styleFilter)}
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          styleOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                    {styleOpen && (
+                      <div className="absolute right-0 mt-2 w-56 rounded-md bg-popover border border-border shadow-2xl shadow-black/40 z-50 overflow-hidden">
+                        <div className="p-1 max-h-64 overflow-y-auto">
+                          {styleOptions.map((option) => {
+                            const active = styleFilter === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => {
+                                  setStyleFilter(option.value as StyleFilter);
+                                  setStyleOpen(false);
+                                }}
+                                className={`w-full flex items-center gap-2 px-2.5 py-2 rounded text-sm text-left transition-colors ${
+                                  active
+                                    ? "bg-indigo/20 text-indigo-100 border border-indigo/40"
+                                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground border border-transparent"
+                                }`}
+                              >
+                                <span className="flex-1 truncate">
+                                  {option.label}
+                                </span>
+                                {active && (
+                                  <Check className="w-4 h-4 text-indigo" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortBy)}>
-                    <SelectTrigger className="h-10 min-w-40 gap-2 bg-input/30">
-                      <BookOpen className="w-4 h-4 text-muted-foreground" />
-                      <SelectValue placeholder="Sort by" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SORT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div ref={sortRef} className="relative">
+                    {(() => {
+                      const current = SORT_OPTIONS.find(
+                        (o) => o.value === sortBy
+                      );
+                      const CurrentIcon =
+                        current?.icon === "arrow-down-narrow-wide"
+                          ? ArrowDownNarrowWide
+                          : current?.icon === "arrow-up-narrow-wide"
+                            ? ArrowUpNarrowWide
+                            : current?.icon === "calendar-arrow-down"
+                              ? CalendarArrowDown
+                              : current?.icon === "arrow-down-a-z"
+                                ? ArrowDownAZ
+                                : ArrowDownZA;
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSortOpen(!sortOpen);
+                              setStyleOpen(false);
+                            }}
+                            className={`flex items-center gap-2 h-10 px-3 rounded-md bg-input/30 text-sm font-medium transition-all duration-150 min-w-44 ${
+                              sortOpen
+                                ? "border border-indigo/60 ring-2 ring-indigo/30 text-foreground"
+                                : "border border-indigo/40 text-foreground hover:border-indigo/60"
+                            }`}
+                          >
+                            {CurrentIcon && (
+                              <CurrentIcon className="w-4 h-4" />
+                            )}
+                            <span className="flex-1 text-left truncate">
+                              Sort: {current?.label}
+                            </span>
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform duration-200 ${
+                                sortOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                          {sortOpen && (
+                            <div className="absolute right-0 mt-2 w-60 rounded-md bg-popover border border-border shadow-2xl shadow-black/40 z-50 overflow-hidden">
+                              <div className="p-1">
+                                {SORT_OPTIONS.map((option) => {
+                                  const Icon =
+                                    option.icon ===
+                                    "arrow-down-narrow-wide"
+                                      ? ArrowDownNarrowWide
+                                      : option.icon ===
+                                          "arrow-up-narrow-wide"
+                                        ? ArrowUpNarrowWide
+                                        : option.icon ===
+                                            "calendar-arrow-down"
+                                          ? CalendarArrowDown
+                                          : option.icon === "arrow-down-a-z"
+                                            ? ArrowDownAZ
+                                            : ArrowDownZA;
+                                  const active = sortBy === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      onClick={() => {
+                                        setSortBy(option.value);
+                                        setSortOpen(false);
+                                      }}
+                                      className={`w-full flex items-center gap-2 px-2.5 py-2 rounded text-sm text-left transition-colors ${
+                                        active
+                                          ? "bg-indigo/20 text-indigo-100 border border-indigo/40"
+                                          : "text-muted-foreground hover:bg-white/5 hover:text-foreground border border-transparent"
+                                      }`}
+                                    >
+                                      <Icon className="w-4 h-4 shrink-0" />
+                                      <span className="flex-1">
+                                        {option.label}
+                                      </span>
+                                      {active && (
+                                        <Check className="w-4 h-4 text-indigo" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
 
@@ -328,7 +495,7 @@ export default function StoriesPage() {
             </div>
 
             {filteredAndSortedStories.length > 0 && (
-              <div className="opacity-0 animate-fade-in-up animation-delay-200 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+              <div className="opacity-0 animate-fade-in-up animation-delay-200 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6 relative z-0">
                 <button
                   onClick={() => router.push("/")}
                   className="opacity-0 animate-fade-in-up group relative glass-panel p-3 rounded-lg hover:shadow-indigo/20 hover:shadow-2xl transition-all duration-300 border-2 border-dashed border-border/60 hover:border-indigo/40 focus-visible:ring-2 focus-visible:ring-indigo/50 focus-visible:outline-none"
