@@ -62,7 +62,7 @@ export function Navbar() {
 
   return (
     <>
-      <nav className="w-full h-14 sm:h-16 border-b border-border/50 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-50 bg-background/80 backdrop-blur-md">
+      <nav className={`w-full h-14 sm:h-16 border-b border-border/50 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-50 bg-background/80 backdrop-blur-md ${pathname === "/stories" ? "sticky top-0" : ""}`}>
         <Link
           href="/"
           className="flex items-center gap-1 hover:opacity-80 transition-opacity"
