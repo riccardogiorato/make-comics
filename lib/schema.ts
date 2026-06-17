@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, uuid, jsonb, boolean, serial } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, timestamp, uuid, jsonb, boolean, serial, bigint } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Stories table
@@ -22,6 +22,11 @@ export const pages = pgTable('pages', {
   prompt: text('prompt').notNull(),
   characterImageUrls: jsonb('character_image_urls').$type<string[]>().default([]).notNull(),
   generatedImageUrl: text('generated_image_url'),
+  // #1 moderation rewrite: non-null when the original prompt was rewritten
+  finalPrompt: text('final_prompt'),
+  // #4 telemetry
+  model: text('model'),
+  generationMs: integer('generation_ms'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

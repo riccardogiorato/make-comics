@@ -272,6 +272,12 @@ export function ComicCreationForm({
       // Clear the draft since submission was successful
       localStorage.removeItem(PROMPT_STORAGE_KEY);
       clearInterval(stepInterval);
+
+      if (result.promptAdjusted) {
+        // Carry the flag across the navigation — story editor picks it up on mount
+        sessionStorage.setItem("promptAdjusted", "1");
+      }
+
       // Redirect to the story editor using slug
       router.push(`/story/${result.storySlug}`);
     } catch (error) {

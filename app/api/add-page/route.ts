@@ -15,20 +15,8 @@ import {
 import { freeTierRateLimit } from "@/lib/rate-limit";
 import { uploadImageToS3 } from "@/lib/s3-upload";
 import { buildComicPrompt } from "@/lib/prompt";
-import {
-  isContentPolicyViolation,
-  getContentPolicyErrorMessage,
-} from "@/lib/utils";
-
-const NEW_MODEL = false;
-
-const IMAGE_MODEL = NEW_MODEL
-  ? "google/gemini-3-pro-image"
-  : "google/flash-image-2.5";
-
-const FIXED_DIMENSIONS = NEW_MODEL
-  ? { width: 896, height: 1200 }
-  : { width: 864, height: 1184 };
+import { generateComicImage } from "@/lib/generate-image";
+import { isContentPolicyViolation, getContentPolicyErrorMessage } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -98,8 +86,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const dimensions = FIXED_DIMENSIONS;
-
     // Collect reference images: previous page + story characters + current characters
     let referenceImages: string[] = [];
 
@@ -144,48 +130,15 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.TOGETHER_API_KEY,
     });
 
-    let response;
+    let genResult;
     try {
-      console.log("Starting image generation for ...");
-      console.dir({
-        fullPrompt,
-        referenceImages,
-      });
-      const startTime = Date.now();
-      response = await client.images.generate({
-        model: IMAGE_MODEL,
-        prompt: fullPrompt,
-        width: dimensions.width,
-        height: dimensions.height,
-        reference_images:
-          referenceImages.length > 0 ? referenceImages : undefined,
-      });
-      const endTime = Date.now();
-      const durationMs = endTime - startTime;
-      const durationSeconds = (durationMs / 1000).toFixed(2);
-      console.log(`Image generation completed in ${durationSeconds} seconds`);
+      console.log("Starting image generation...", { promptLength: fullPrompt.length, refs: referenceImages.length });
+      genResult = await generateComicImage({ client, prompt: fullPrompt, referenceImages });
     } catch (error) {
       console.error("Together AI API error:", error);
 
-      // Clean up DB records if generation failed due to content policy
-      try {
-        if (
-          error instanceof Error &&
-          error.message &&
-          error.message.includes("NO_IMAGE")
-        ) {
-          if (isRedraw) {
-            // For redraw, we don't delete the page, just don't update it
-          } else {
-            // For new page, delete the page that was created
-            await deletePage(page.id);
-          }
-        }
-      } catch (cleanupError) {
-        console.error(
-          "Error cleaning up DB on image generation failure:",
-          cleanupError,
-        );
+      if (!isRedraw) {
+        try { await deletePage(page.id); } catch (e) { console.error("Cleanup error:", e); }
       }
 
       if (
@@ -194,10 +147,7 @@ export async function POST(request: NextRequest) {
         isContentPolicyViolation(error.message)
       ) {
         return NextResponse.json(
-          {
-            error: getContentPolicyErrorMessage(),
-            errorType: "content_policy",
-          },
+          { error: getContentPolicyErrorMessage(), errorType: "content_policy" },
           { status: 400 },
         );
       }
@@ -206,44 +156,30 @@ export async function POST(request: NextRequest) {
         const status = (error as any).status;
         if (status === 402) {
           return NextResponse.json(
-            {
-              error: "Insufficient API credits.",
-              errorType: "credit_limit",
-            },
+            { error: "Insufficient API credits.", errorType: "credit_limit" },
             { status: 402 },
           );
         }
         return NextResponse.json(
-          {
-            error: error.message || `Failed to generate image: ${status}`,
-            errorType: "api_error",
-          },
+          { error: error.message || `Failed to generate image: ${status}`, errorType: "api_error" },
           { status: status || 500 },
         );
       }
 
       return NextResponse.json(
-        {
-          error: `Internal server error: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
-        },
+        { error: `Internal server error: ${error instanceof Error ? error.message : "Unknown error"}` },
         { status: 500 },
       );
     }
 
-    if (!response.data || !response.data[0] || !response.data[0].url) {
-      return NextResponse.json(
-        { error: "No image URL in response" },
-        { status: 500 },
-      );
-    }
-
-    const imageUrl = response.data[0].url;
     const s3Key = `${story.id}/page-${page.pageNumber}-${Date.now()}.jpg`;
-    const s3ImageUrl = await uploadImageToS3(imageUrl, s3Key);
+    const s3ImageUrl = await uploadImageToS3(genResult.imageUrl, s3Key);
 
-    await updatePage(page.id, s3ImageUrl);
+    await updatePage(page.id, s3ImageUrl, {
+      model: genResult.model,
+      generationMs: genResult.generationMs,
+      finalPrompt: genResult.finalPrompt,
+    });
 
     // Apply rate limiting for free tier after successful generation
     const hasApiKey = request.headers.get("x-api-key");
@@ -263,6 +199,7 @@ export async function POST(request: NextRequest) {
       imageUrl: s3ImageUrl,
       pageId: page.id,
       pageNumber: page.pageNumber,
+      promptAdjusted: genResult.promptAdjusted,
     });
   } catch (error) {
     console.error("Error in add-page API:", error);

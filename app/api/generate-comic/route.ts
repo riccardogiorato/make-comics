@@ -16,20 +16,7 @@ import { freeTierRateLimit } from "@/lib/rate-limit";
 import { COMIC_STYLES } from "@/lib/constants";
 import { uploadImageToS3 } from "@/lib/s3-upload";
 import { buildComicPrompt } from "@/lib/prompt";
-import {
-  isContentPolicyViolation,
-  getContentPolicyErrorMessage,
-} from "@/lib/utils";
-
-const NEW_MODEL = false;
-
-const IMAGE_MODEL = NEW_MODEL
-  ? "google/gemini-3-pro-image"
-  : "google/flash-image-2.5";
-
-const FIXED_DIMENSIONS = NEW_MODEL
-  ? { width: 896, height: 1200 }
-  : { width: 864, height: 1184 };
+import { generateComicImage } from "@/lib/generate-image";
 
 const TEXT_MODEL = "Qwen/Qwen3.5-9B";
 
@@ -130,8 +117,6 @@ export async function POST(request: NextRequest) {
     // Use only the character images sent from the frontend
     referenceImages.push(...characterImages);
 
-    const dimensions = FIXED_DIMENSIONS;
-
     const fullPrompt = buildComicPrompt({
       prompt,
       style,
@@ -225,58 +210,27 @@ Only return the JSON, no other text.`;
       })();
     }
 
-    let response;
+    let genResult;
     try {
-      console.log("Starting image generation for ...");
-      console.dir({
-        fullPrompt,
-        referenceImages,
-      });
-      const startTime = Date.now();
-      response = await client.images.generate({
-        model: IMAGE_MODEL,
+      console.log("Starting image generation...", { promptLength: fullPrompt.length, refs: referenceImages.length });
+      genResult = await generateComicImage({
+        client,
         prompt: fullPrompt,
-        width: dimensions.width,
-        height: dimensions.height,
-        temperature: 0.1, // Lower temperature for more consistent face matching
-        reference_images:
-          referenceImages.length > 0 ? referenceImages : undefined,
+        referenceImages,
+        temperature: 0.1,
       });
-      const endTime = Date.now();
-      const durationMs = endTime - startTime;
-      const durationSeconds = (durationMs / 1000).toFixed(2);
-      console.log(`Image generation completed in ${durationSeconds} seconds`);
     } catch (error) {
       console.error("Together AI API error:", error);
 
       // Clean up DB records if generation failed
       try {
         if (!storyId) {
-          // New story failed
           await deleteStory(story!.id);
         } else {
-          // Continuation failed
           await deletePage(page.id);
         }
       } catch (cleanupError) {
-        console.error(
-          "Error cleaning up DB on image generation failure:",
-          cleanupError,
-        );
-      }
-
-      if (
-        error instanceof Error &&
-        error.message &&
-        isContentPolicyViolation(error.message)
-      ) {
-        return NextResponse.json(
-          {
-            error: getContentPolicyErrorMessage(),
-            errorType: "content_policy",
-          },
-          { status: 400 },
-        );
+        console.error("Error cleaning up DB on image generation failure:", cleanupError);
       }
 
       if (error instanceof Error && "status" in error) {
@@ -292,32 +246,18 @@ Only return the JSON, no other text.`;
           );
         }
         return NextResponse.json(
-          {
-            error: error.message || `Failed to generate image: ${status}`,
-            errorType: "api_error",
-          },
+          { error: error.message || `Failed to generate image: ${status}`, errorType: "api_error" },
           { status: status || 500 },
         );
       }
 
       return NextResponse.json(
-        {
-          error: `Internal server error: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
-        },
+        { error: `Internal server error: ${error instanceof Error ? error.message : "Unknown error"}` },
         { status: 500 },
       );
     }
 
-    if (!response.data || !response.data[0] || !response.data[0].url) {
-      return NextResponse.json(
-        { error: "No image URL in response" },
-        { status: 500 },
-      );
-    }
-
-    const imageUrl = response.data[0].url;
+    const imageUrl = genResult.imageUrl;
 
     // Upload image to S3 for permanent storage
     const s3Key = `${storyId || story!.id}/page-${
@@ -351,9 +291,13 @@ Only return the JSON, no other text.`;
       }
     }
 
-    // Update page in database with S3 URL
+    // Update page in database with S3 URL + telemetry
     try {
-      await updatePage(page.id, s3ImageUrl);
+      await updatePage(page.id, s3ImageUrl, {
+        model: genResult.model,
+        generationMs: genResult.generationMs,
+        finalPrompt: genResult.finalPrompt,
+      });
     } catch (dbError) {
       console.error("Error updating page in database:", dbError);
       return NextResponse.json(
@@ -376,7 +320,7 @@ Only return the JSON, no other text.`;
     }
 
     const responseData = storyId
-      ? { imageUrl: s3ImageUrl, pageId: page.id, pageNumber: page.pageNumber }
+      ? { imageUrl: s3ImageUrl, pageId: page.id, pageNumber: page.pageNumber, promptAdjusted: genResult.promptAdjusted }
       : {
           imageUrl: s3ImageUrl,
           storyId: story!.id,
@@ -385,6 +329,7 @@ Only return the JSON, no other text.`;
           pageNumber: page.pageNumber,
           title: generatedTitle || story!.title,
           description: generatedDescription || story!.description,
+          promptAdjusted: genResult.promptAdjusted,
         };
 
     return NextResponse.json(responseData);

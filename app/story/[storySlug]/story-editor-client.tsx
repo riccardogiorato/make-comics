@@ -72,6 +72,18 @@ export function StoryEditorClient() {
     setStory(prev => prev ? { ...prev, title: newTitle } : null);
   };
 
+  // Show prompt-adjusted notification when arriving from initial generation
+  useEffect(() => {
+    if (sessionStorage.getItem("promptAdjusted") === "1") {
+      sessionStorage.removeItem("promptAdjusted");
+      toast({
+        title: "Prompt adjusted",
+        description: "Your prompt was modified to meet content guidelines and retried successfully.",
+        duration: 5000,
+      });
+    }
+  }, [toast]);
+
   // Load story and pages from API
   useEffect(() => {
     const loadStoryData = async () => {
@@ -267,9 +279,11 @@ export function StoryEditorClient() {
       );
 
       toast({
-        title: "Page redrawn successfully",
-        description: "The page has been regenerated with a fresh image.",
-        duration: 3000,
+        title: result.promptAdjusted ? "Page redrawn (prompt adjusted)" : "Page redrawn successfully",
+        description: result.promptAdjusted
+          ? "Your prompt was modified to meet content guidelines and retried successfully."
+          : "The page has been regenerated with a fresh image.",
+        duration: result.promptAdjusted ? 5000 : 3000,
       });
     } catch (error) {
       console.error("Error redrawing page:", error);
@@ -448,8 +462,15 @@ export function StoryEditorClient() {
       },
     ]);
     setCurrentPage(pages.length);
-
     setShowGenerateModal(false);
+
+    if (result.promptAdjusted) {
+      toast({
+        title: "Page generated (prompt adjusted)",
+        description: "Your prompt was modified to meet content guidelines and retried successfully.",
+        duration: 5000,
+      });
+    }
   };
 
   if (isLoading) {

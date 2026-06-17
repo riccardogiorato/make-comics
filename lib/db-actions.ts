@@ -36,9 +36,19 @@ export async function createPage(data: {
   return page;
 }
 
-export async function updatePage(pageId: string, generatedImageUrl: string): Promise<void> {
+export async function updatePage(
+  pageId: string,
+  generatedImageUrl: string,
+  extras?: { finalPrompt?: string; model?: string; generationMs?: number },
+): Promise<void> {
   await db.update(pages)
-    .set({ generatedImageUrl, updatedAt: new Date() })
+    .set({
+      generatedImageUrl,
+      updatedAt: new Date(),
+      ...(extras?.finalPrompt !== undefined && { finalPrompt: extras.finalPrompt }),
+      ...(extras?.model !== undefined && { model: extras.model }),
+      ...(extras?.generationMs !== undefined && { generationMs: extras.generationMs }),
+    })
     .where(eq(pages.id, pageId));
 }
 
