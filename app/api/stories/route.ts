@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { stories, pages } from "@/lib/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, inArray, asc } from "drizzle-orm";
 
 export async function GET() {
   try {
@@ -15,7 +15,7 @@ export async function GET() {
       );
     }
 
-    // Get all stories for the user with their pages
+    // Fetch all stories for the user
     const userStories = await db
       .select({
         id: stories.id,
@@ -23,60 +23,76 @@ export async function GET() {
         slug: stories.slug,
         style: stories.style,
         createdAt: stories.createdAt,
-        pageCount: pages.pageNumber,
-        coverImage: pages.generatedImageUrl,
-        pageCreatedAt: pages.createdAt,
-        pageUpdatedAt: pages.updatedAt,
+        updatedAt: stories.updatedAt,
       })
       .from(stories)
-      .leftJoin(pages, eq(stories.id, pages.storyId))
       .where(eq(stories.userId, userId));
 
-    // Group by story and find the max page number, first page image, and most recent update
-    const storyMap = new Map();
+    if (userStories.length === 0) {
+      return NextResponse.json({ stories: [] });
+    }
 
-    userStories.forEach((row) => {
-      const storyId = row.id;
-      if (!storyMap.has(storyId)) {
-        storyMap.set(storyId, {
-          id: row.id,
-          title: row.title,
-          slug: row.slug,
-          style: row.style,
-          createdAt: row.createdAt,
-          pageCount: 0,
-          coverImage: null,
-          lastUpdated: row.createdAt, // Default to story creation date
-        });
+    const storyIds = userStories.map((s) => s.id);
+
+    // Fetch all pages for these stories, ordered for stable cover selection
+    const allPages = await db
+      .select({
+        storyId: pages.storyId,
+        pageNumber: pages.pageNumber,
+        generatedImageUrl: pages.generatedImageUrl,
+        createdAt: pages.createdAt,
+        updatedAt: pages.updatedAt,
+      })
+      .from(pages)
+      .where(inArray(pages.storyId, storyIds))
+      .orderBy(asc(pages.storyId), asc(pages.pageNumber));
+
+    // Group pages by story
+    const pagesByStory = new Map<string, typeof allPages>();
+    for (const page of allPages) {
+      const list = pagesByStory.get(page.storyId) ?? [];
+      list.push(page);
+      pagesByStory.set(page.storyId, list);
+    }
+
+    const storiesWithCovers = userStories.map((story) => {
+      const storyPages = pagesByStory.get(story.id) ?? [];
+
+      // Cover = first page (by pageNumber) that has a generated image
+      const coverPage = storyPages.find((p) => p.generatedImageUrl);
+      const coverImage = coverPage?.generatedImageUrl ?? null;
+
+      // lastUpdated = max of story.updatedAt and any page.updatedAt/createdAt
+      let lastUpdated: Date = story.updatedAt ?? story.createdAt;
+      for (const page of storyPages) {
+        if (page.updatedAt && page.updatedAt > lastUpdated) {
+          lastUpdated = page.updatedAt;
+        }
+        if (page.createdAt && page.createdAt > lastUpdated) {
+          lastUpdated = page.createdAt;
+        }
       }
 
-      const story = storyMap.get(storyId);
-      if (row.pageCount && row.pageCount > story.pageCount) {
-        story.pageCount = row.pageCount;
-      }
-      if (row.pageCount === 1 && row.coverImage) {
-        story.coverImage = row.coverImage;
-      }
-      // Track the most recent page update
-      if (row.pageUpdatedAt && row.pageUpdatedAt > story.lastUpdated) {
-        story.lastUpdated = row.pageUpdatedAt;
-      } else if (row.pageCreatedAt && row.pageCreatedAt > story.lastUpdated) {
-        story.lastUpdated = row.pageCreatedAt;
-      }
+      return {
+        id: story.id,
+        title: story.title,
+        slug: story.slug,
+        style: story.style,
+        createdAt: story.createdAt,
+        pageCount: storyPages.length,
+        coverImage,
+        lastUpdated,
+      };
     });
 
-    const storiesWithCovers = Array.from(storyMap.values());
-
-    // Sort by most recently updated (stories with newest pages first)
+    // Sort by most recently updated first
     storiesWithCovers.sort((a, b) => {
       const aTime = new Date(a.lastUpdated).getTime();
       const bTime = new Date(b.lastUpdated).getTime();
-      return bTime - aTime; // Most recent first
+      return bTime - aTime;
     });
 
-    return NextResponse.json({
-      stories: storiesWithCovers
-    });
+    return NextResponse.json({ stories: storiesWithCovers });
   } catch (error) {
     console.error("Error fetching user stories:", error);
     return NextResponse.json(
