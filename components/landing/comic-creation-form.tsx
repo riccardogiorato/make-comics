@@ -39,7 +39,7 @@ const STYLE_STORAGE_KEY = 'comic-style-preference';
 export function ComicCreationForm({
   prompt,
   setPrompt,
-  style: initialStyle,
+  style,
   setStyle: setParentStyle,
   characterFiles,
   setCharacterFiles,
@@ -60,8 +60,6 @@ export function ComicCreationForm({
   const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
 
-  // Initialize style with initial value, load from localStorage after mount
-  const [style, setStyle] = useState(initialStyle || DEFAULT_STYLE);
   const [isMounted, setIsMounted] = useState(false);
   const styleButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,20 +98,21 @@ export function ComicCreationForm({
     }
   }, []); // Run only on mount
 
-  // Load style preference from localStorage on mount
+  // On mount: restore saved style preference and notify parent
   useEffect(() => {
     const saved = localStorage.getItem(STYLE_STORAGE_KEY);
     if (saved) {
       const isFeatured = FEATURED_STYLES.some((s) => s.id === saved);
-      setStyle(isFeatured ? saved : DEFAULT_STYLE);
+      const resolved = isFeatured ? saved : DEFAULT_STYLE;
+      if (resolved !== style) setParentStyle(resolved);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save style to localStorage and sync with parent
+  // Persist whenever parent-controlled style changes
   useEffect(() => {
     localStorage.setItem(STYLE_STORAGE_KEY, style);
-    setParentStyle(style);
-  }, [style, setParentStyle]);
+  }, [style]);
 
   // Fetch credits on mount
   useEffect(() => {
@@ -447,7 +446,7 @@ export function ComicCreationForm({
                 return (
                   <button
                     key={styleOption.id}
-                    onClick={() => { setStyle(styleOption.id); setShowStyleDropdown(false); }}
+                    onClick={() => { setParentStyle(styleOption.id); setShowStyleDropdown(false); }}
                     className={`relative rounded-lg overflow-hidden aspect-square border-2 transition-all ${
                       isSelected ? "border-white" : "border-transparent hover:border-white/30"
                     }`}
