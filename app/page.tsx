@@ -7,25 +7,42 @@ import { ComicCreationForm } from "@/components/landing/comic-creation-form";
 import { ComicPreview } from "@/components/landing/comic-preview";
 import { useState, useEffect } from "react";
 
+// Must match the order in STYLE_PAGES inside comic-preview.tsx
+const PREVIEW_STYLE_IDS = ["american-modern", "manga", "retro-noir", "indie-vector"] as const;
+
 export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
+  const [autoPlay, setAutoPlay] = useState(true);
   const [prompt, setPrompt] = useState("");
-  const [style, setStyle] = useState("noir");
   const [characterFiles, setCharacterFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Auto-loop through pages every 6 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentPage((prev) => (prev === 4 ? 1 : prev + 1));
-    }, 6000);
+  // Derive the active style from currentPage so there is one source of truth
+  const style = PREVIEW_STYLE_IDS[currentPage - 1] ?? PREVIEW_STYLE_IDS[0];
 
-    return () => clearInterval(interval);
-  }, []);
+  // When the user picks a style in the form, jump the preview to that style
+  const setStyle = (s: string) => {
+    const idx = PREVIEW_STYLE_IDS.indexOf(s as typeof PREVIEW_STYLE_IDS[number]);
+    if (idx !== -1) {
+      setCurrentPage(idx + 1);
+      setAutoPlay(false); // user took control — pause auto-play
+    }
+  };
 
+  // Dot-nav in the preview also pauses auto-play
   const goToPage = (page: number) => {
     setCurrentPage(page);
+    setAutoPlay(false);
   };
+
+  // Auto-loop — only when user hasn't manually selected
+  useEffect(() => {
+    if (!autoPlay) return;
+    const interval = setInterval(() => {
+      setCurrentPage((prev) => (prev === PREVIEW_STYLE_IDS.length ? 1 : prev + 1));
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [autoPlay]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-hidden relative">
