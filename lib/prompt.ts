@@ -72,23 +72,19 @@ export function buildComicPrompt({
   if (characterImages.length > 0) {
     if (characterImages.length === 1) {
       characterSection = `
-CRITICAL FACE CONSISTENCY INSTRUCTIONS:
-- REFERENCE CHARACTER: Use the uploaded image as EXACT reference for the protagonist's face and appearance
-- FACE MATCHING: The character's face must be IDENTICAL to the reference image - same eyes, nose, mouth, hair, facial structure
-- APPEARANCE PRESERVATION: Maintain exact skin tone, hair color/style, eye color, and distinctive facial features
-- CHARACTER CONSISTENCY: This exact same character must appear in ALL 5 panels with the same face throughout
-- STYLE APPLICATION: Apply ${style} comic art style to the body/pose/action but KEEP THE FACE EXACTLY AS IN THE REFERENCE IMAGE
-- NO VARIATION: Do not alter, modify, or change the character's face in any way from the reference`;
+REFERENCE PHOTO — FACE ONLY:
+- Use the uploaded reference photo ONLY for the hero's face and head
+- DO NOT copy the reference for body, costume, species, or clothing — those come from the story description
+- The hero's face must remain consistent across all panels they appear in
+- STYLE APPLICATION: Apply ${style} comic art style to the body/pose/action while keeping the face true to the reference`;
     } else if (characterImages.length === 2) {
       characterSection = `
-CRITICAL DUAL CHARACTER FACE CONSISTENCY INSTRUCTIONS:
-- CHARACTER 1 REFERENCE: Use the FIRST uploaded image as EXACT reference for Character 1's face and appearance
-- CHARACTER 2 REFERENCE: Use the SECOND uploaded image as EXACT reference for Character 2's face and appearance
-- FACE MATCHING: Both characters' faces must be IDENTICAL to their respective reference images
-- VISUAL DISTINCTION: Keep both characters clearly visually distinct with their unique faces, hair, and features
-- CONSISTENT PRESENCE: Both characters must appear together in at least 4 of the 5 panels
-- STYLE APPLICATION: Apply ${style} comic art style while maintaining EXACT facial features from references
-- NO FACE VARIATION: Never alter or modify either character's face from their reference images`;
+REFERENCE PHOTOS — FACE ONLY (TWO CHARACTERS):
+- Use the FIRST uploaded photo ONLY for Character 1's face and head
+- Use the SECOND uploaded photo ONLY for Character 2's face and head
+- DO NOT copy either reference for body, costume, species, or clothing — those come from the story description
+- Keep both characters' faces consistent across all panels; keep them visually distinct from each other
+- STYLE APPLICATION: Apply ${style} comic art style to bodies/poses while keeping faces true to their references`;
     }
   }
 
@@ -96,11 +92,10 @@ CRITICAL DUAL CHARACTER FACE CONSISTENCY INSTRUCTIONS:
 ${continuationContext}
 ${characterSection}
 
-CHARACTER CONSISTENCY RULES (HIGHEST PRIORITY):
-- If reference images are provided, the characters' FACES must be 100% identical to the reference images
-- Never change hair color, eye color, facial structure, or distinctive features
-- Apply comic style to body/pose/action but preserve exact facial appearance
-- Same character must look identical across all panels they appear in
+CHARACTER CONSISTENCY RULES:
+- If reference images are provided, use them ONLY for the hero's face — body, costume, and species come from the story description
+- The hero's face must remain consistent across all panels they appear in
+- Apply comic style to body/pose/action while keeping the face true to the reference
 
 TEXT AND LETTERING (CRITICAL):
 - All text in speech bubbles must be PERFECTLY CLEAR, LEGIBLE, and correctly spelled
@@ -110,12 +105,19 @@ TEXT AND LETTERING (CRITICAL):
 - NO blurry, warped, or unreadable text
 
 PAGE LAYOUT:
-5-panel comic page arranged as:
-[Panel 1] [Panel 2] — top row, 2 equal panels
-[    Panel 3      ] — middle row, 1 large cinematic hero panel
-[Panel 4] [Panel 5] — bottom row, 2 equal panels
+3–5 panel comic page with DYNAMIC, VARIED layouts — do NOT default to a fixed grid.
+- Vary panel count: 3 panels for dramatic moments, 4–5 for fast-paced action sequences
+- Vary panel shapes and sizes across the page:
+  * Wide horizontal panels for establishing shots or action spreads
+  * Tall vertical panels for dramatic character reveals
+  * Small square panels for quick beats or close-ups
+  * Large panels taking 1/2 or 2/3 of the page for key moments
+  * Overlapping panels that break the grid for dynamic action
+  * Diagonal or angled panel borders for intense sequences
+  * Inset panels inside larger panels for simultaneous action
 - Solid black panel borders with clean white gutters between panels
-- Each panel clearly separated and distinct
+- NO title text on any page — only panels, speech bubbles, and caption boxes
+- CAPTIONS: optional — use only where narration adds clear value; many panels work better without
 
 ART STYLE:
 ${styleDesc}

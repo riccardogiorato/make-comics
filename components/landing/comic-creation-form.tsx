@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Upload, X, Check, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useS3Upload } from "next-s3-upload";
 import { useAuth, SignInButton, useClerk } from "@clerk/nextjs";
-import { COMIC_STYLES } from "@/lib/constants";
+import { FEATURED_STYLES } from "@/lib/constants";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { useApiKey } from "@/hooks/use-api-key";
 import { isContentPolicyViolation } from "@/lib/utils";
@@ -25,7 +26,14 @@ interface ComicCreationFormProps {
   setIsLoading: (loading: boolean) => void;
 }
 
-const DEFAULT_STYLE = 'noir';
+const DEFAULT_STYLE = 'american-modern';
+
+const STYLE_GRADIENTS: Record<string, string> = {
+  "american-modern": "bg-gradient-to-br from-blue-700 via-red-600 to-yellow-400",
+  "manga":           "bg-gradient-to-br from-slate-950 via-slate-600 to-slate-100",
+  "retro-noir":      "bg-gradient-to-br from-stone-950 via-amber-900 to-stone-600",
+  "indie-vector":    "bg-gradient-to-br from-cyan-400 via-violet-500 to-pink-400",
+};
 const STYLE_STORAGE_KEY = 'comic-style-preference';
 
 export function ComicCreationForm({
@@ -54,6 +62,8 @@ export function ComicCreationForm({
 
   // Initialize style with initial value, load from localStorage after mount
   const [style, setStyle] = useState(initialStyle || DEFAULT_STYLE);
+  const [isMounted, setIsMounted] = useState(false);
+  const styleButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -65,6 +75,8 @@ export function ComicCreationForm({
       setShowStyleDropdown(false);
     }
   }, [isLoading]);
+
+  useEffect(() => { setIsMounted(true); }, []);
 
   useEffect(() => {
     // Auto-focus the textarea when component mounts
@@ -92,7 +104,8 @@ export function ComicCreationForm({
   useEffect(() => {
     const saved = localStorage.getItem(STYLE_STORAGE_KEY);
     if (saved) {
-      setStyle(saved);
+      const isFeatured = FEATURED_STYLES.some((s) => s.id === saved);
+      setStyle(isFeatured ? saved : DEFAULT_STYLE);
     }
   }, []);
 
@@ -174,17 +187,6 @@ export function ComicCreationForm({
     }
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest(".dropdown-container")) {
-        setShowStyleDropdown(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const handleCreate = async () => {
     if (!prompt.trim()) {
@@ -309,6 +311,15 @@ export function ComicCreationForm({
     }
   };
 
+  const getPopoverStyle = (): React.CSSProperties => {
+    if (!styleButtonRef.current) return {};
+    const r = styleButtonRef.current.getBoundingClientRect();
+    return {
+      bottom: window.innerHeight - r.top + 8,
+      right: window.innerWidth - r.right,
+    };
+  };
+
   const loadingSteps = [
     "Enhancing prompt...",
     "Generating scenes...",
@@ -394,53 +405,20 @@ export function ComicCreationForm({
             </div>
 
             <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-start sm:justify-end">
-              <div className="relative dropdown-container z-60">
-                <button
-                  onClick={() => {
-                    if (!isLoading) setShowStyleDropdown(!showStyleDropdown);
-                  }}
-                  disabled={isLoading}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md glass-panel glass-panel-hover transition-all text-xs text-muted-foreground hover:text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-muted-foreground"
-                >
-                  <svg
-                    className="w-3 h-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
-                    />
-                  </svg>
-                  <span>{COMIC_STYLES.find((s) => s.id === style)?.name}</span>
-                </button>
-
-                {showStyleDropdown && (
-                  <div className="absolute left-0 sm:right-0 sm:left-auto bottom-full mb-2 w-40 bg-background rounded-lg p-1 z-70 shadow-2xl border border-border/50">
-                    {COMIC_STYLES.map((styleOption) => (
-                      <button
-                        key={styleOption.id}
-                        onClick={() => {
-                          setStyle(styleOption.id);
-                          setShowStyleDropdown(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded text-xs transition-colors flex items-center justify-between ${style === styleOption.id
-                          ? "bg-indigo/10 text-indigo"
-                          : "text-muted-foreground hover:bg-white/5 hover:text-white"
-                          }`}
-                      >
-                        <span>{styleOption.name}</span>
-                        {style === styleOption.id && (
-                          <Check className="w-3 h-3" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                ref={styleButtonRef}
+                onClick={() => { if (!isLoading) setShowStyleDropdown((v) => !v); }}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-md glass-panel glass-panel-hover transition-all text-xs text-muted-foreground hover:text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-muted-foreground"
+              >
+                {(() => {
+                  const current = FEATURED_STYLES.find((s) => s.id === style) ?? FEATURED_STYLES[0];
+                  return current.image
+                    ? <img src={current.image} alt={current.name} className="w-4 h-4 rounded object-cover shrink-0" />
+                    : <span className={`w-4 h-4 rounded shrink-0 ${STYLE_GRADIENTS[style] ?? STYLE_GRADIENTS["american-modern"]}`} />;
+                })()}
+                <span>{FEATURED_STYLES.find((s) => s.id === style)?.name ?? FEATURED_STYLES[0].name}</span>
+              </button>
             </div>
           </div>
 
@@ -454,6 +432,52 @@ export function ComicCreationForm({
           />
         </div>
       </div>
+
+      {isMounted && showStyleDropdown && createPortal(
+        <>
+          <div className="fixed inset-0 z-[999]" onClick={() => setShowStyleDropdown(false)} />
+          <div
+            className="fixed z-[1000] bg-background border border-border/50 rounded-xl p-3 shadow-2xl w-52"
+            style={getPopoverStyle()}
+          >
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2 font-medium">Style</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {FEATURED_STYLES.map((styleOption) => {
+                const isSelected = style === styleOption.id;
+                return (
+                  <button
+                    key={styleOption.id}
+                    onClick={() => { setStyle(styleOption.id); setShowStyleDropdown(false); }}
+                    className={`relative rounded-lg overflow-hidden aspect-square border-2 transition-all ${
+                      isSelected ? "border-white" : "border-transparent hover:border-white/30"
+                    }`}
+                  >
+                    {styleOption.image ? (
+                      <img
+                        src={styleOption.image}
+                        alt={styleOption.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className={`absolute inset-0 ${STYLE_GRADIENTS[styleOption.id] ?? ""}`} />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                    <span className="absolute bottom-1.5 left-1.5 right-1.5 text-white text-[10px] font-medium leading-tight text-left">
+                      {styleOption.name}
+                    </span>
+                    {isSelected && (
+                      <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-white rounded-full flex items-center justify-center">
+                        <Check className="w-2.5 h-2.5 text-black" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
 
       {showPreview !== null && previews[showPreview] && (
         <div
