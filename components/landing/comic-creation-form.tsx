@@ -13,7 +13,8 @@ import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { useApiKey } from "@/hooks/use-api-key";
 import { isContentPolicyViolation } from "@/lib/utils";
 import { ApiKeyModal } from "@/components/api-key-modal";
-import { MAX_SYSTEM_LENGTH, MAX_USER_PROMPT } from "@/lib/prompt";
+import { MAX_USER_PROMPT } from "@/lib/prompt";
+import { generateFilePreview, normalizeImageForUpload } from "@/lib/file-utils";
 
 interface ComicCreationFormProps {
   prompt: string;
@@ -151,28 +152,32 @@ export function ComicCreationForm({
     }
   }, { disabled: isLoading || !isLoaded });
 
-  const handleFiles = (newFiles: FileList | null) => {
+  const handleFiles = async (newFiles: FileList | null) => {
     if (!newFiles) return;
 
-    const validFiles = Array.from(newFiles).filter((file) =>
-      file.type.startsWith("image/")
-    );
-    const totalFiles = [...characterFiles, ...validFiles].slice(0, 2); // Max 2 files
+    const normalizedFiles: File[] = [];
+    for (const file of Array.from(newFiles)) {
+      try {
+        normalizedFiles.push(await normalizeImageForUpload(file));
+      } catch (error) {
+        toast({
+          title: "Invalid file",
+          description:
+            error instanceof Error ? error.message : "Could not prepare image.",
+          variant: "destructive",
+          duration: 4000,
+        });
+      }
+    }
+
+    if (normalizedFiles.length === 0) return;
+
+    const totalFiles = [...characterFiles, ...normalizedFiles].slice(0, 2); // Max 2 files
 
     setCharacterFiles(totalFiles);
 
     // Generate previews for all files
-    const newPreviews: string[] = [];
-    totalFiles.forEach((file, index) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        newPreviews[index] = e.target?.result as string;
-        if (newPreviews.filter(Boolean).length === totalFiles.length) {
-          setPreviews([...newPreviews]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    setPreviews(await Promise.all(totalFiles.map((file) => generateFilePreview(file))));
   };
 
   const removeFile = (index: number) => {
@@ -430,7 +435,7 @@ export function ComicCreationForm({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
             multiple
             className="hidden"
             onChange={(e) => handleFiles(e.target.files)}

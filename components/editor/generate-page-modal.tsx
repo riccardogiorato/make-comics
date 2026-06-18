@@ -12,10 +12,10 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
-import { validateFileForUpload, generateFilePreview } from "@/lib/file-utils";
+import { generateFilePreview, normalizeImageForUpload } from "@/lib/file-utils";
 import { useS3Upload } from "next-s3-upload";
 import { isContentPolicyViolation } from "@/lib/utils";
-import { MAX_SYSTEM_LENGTH, MAX_USER_PROMPT } from "@/lib/prompt";
+import { MAX_USER_PROMPT } from "@/lib/prompt";
 
 interface CharacterItem {
   url: string;
@@ -136,27 +136,20 @@ export function GeneratePageModal({
   const handleFiles = async (newFiles: FileList | null) => {
     if (!newFiles) return;
 
-    const filesArray = Array.from(newFiles);
-
-    const validationResults = filesArray.map((file) => ({
-      file,
-      validation: validateFileForUpload(file, true),
-    }));
-
-    validationResults.forEach(({ validation }) => {
-      if (!validation.valid && validation.error) {
+    const validFiles: File[] = [];
+    for (const file of Array.from(newFiles)) {
+      try {
+        validFiles.push(await normalizeImageForUpload(file));
+      } catch (error) {
         toast({
           title: "Invalid file",
-          description: validation.error,
+          description:
+            error instanceof Error ? error.message : "Could not prepare image.",
           variant: "destructive",
           duration: 4000,
         });
       }
-    });
-
-    const validFiles = validationResults
-      .filter(({ validation }) => validation.valid)
-      .map(({ file }) => file);
+    }
 
     if (validFiles.length === 0) return;
 
@@ -333,7 +326,7 @@ export function GeneratePageModal({
                   value={prompt}
 
                   onChange={(e) => setPrompt(e.target.value.slice(
-                    // Only allow users to type up to MAX_SYSTEM_LENGTH characters in the prompt.
+                    // Only allow users to type up to MAX_USER_PROMPT characters in the prompt.
                     // Ensure users cannot paste or otherwise enter more text than the max.
                     0, MAX_USER_PROMPT))
                   }
@@ -425,7 +418,7 @@ export function GeneratePageModal({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/png,image/jpeg,image/jpg"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
                     multiple
                     className="hidden"
                     onChange={(e) => handleFiles(e.target.files)}
