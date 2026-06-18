@@ -48,10 +48,10 @@ export function ComicCanvas({
 
        <div className="relative z-10 w-full max-w-xl">
          <div
-           className="bg-white w-full p-3 shadow-2xl rounded-sm mx-auto group"
+           className="bg-white w-full rounded-sm mx-auto group shadow-xl shadow-indigo/20"
            style={{ maxWidth: "512px" }}
          >
-          <div className="w-full border-4 border-black overflow-hidden relative aspect-3/4">
+          <div className="w-full overflow-hidden relative aspect-3/4">
             <div className="w-full h-full bg-neutral-900">
               <img
                 src={page.image || "/placeholder.svg"}
