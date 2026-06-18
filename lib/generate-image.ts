@@ -22,7 +22,7 @@ async function rewritePrompt(client: Together, prompt: string): Promise<string> 
       {
         role: "system",
         content:
-          "You are a creative writing assistant. Rewrite the following comic book prompt to use fully original fictional characters and settings, removing any copyrighted names, brands, or real people. Preserve the visual style, action, and mood. Return only the rewritten prompt, no commentary.",
+          "You are a creative writing assistant. Rewrite the following comic book prompt to use fully original fictional characters and settings, removing any copyrighted names, brands, or real people. Preserve the visual style, action, and mood. Return only the rewritten prompt as one non-empty paragraph, no commentary.",
       },
       { role: "user", content: prompt },
     ],
@@ -80,6 +80,10 @@ export async function generateComicImage(params: {
     try {
       rewritten = await rewritePrompt(client, prompt);
       console.log("[generate-image] Rewritten prompt:", rewritten.slice(0, 120));
+      if (!rewritten.trim()) {
+        console.error("[generate-image] Prompt rewrite returned empty text");
+        throw firstError;
+      }
     } catch (rewriteError) {
       console.error("[generate-image] Prompt rewrite failed:", rewriteError);
       throw firstError;
