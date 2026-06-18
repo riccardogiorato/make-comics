@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { generateFilePreview, normalizeImageForUpload } from "@/lib/file-utils";
 
@@ -188,12 +187,35 @@ export function ComicGenerationForm({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runIdRef = useRef(0);
 
-  const selectedReferences = useMemo(
-    () => references.filter((reference) => reference.selected),
-    [references],
-  );
   const currentPhase = phaseCopy[phase];
   const isGenerating = phase === "generating-story" || phase === "generating-image";
+  const isChecking =
+    phase === "validating-photos" ||
+    phase === "ready" ||
+    phase === "generating-story" ||
+    phase === "generating-image";
+  const overlayState = issue
+    ? {
+        key: `${issue.kind}-${issue.message}`,
+        tone: issue.kind,
+        title: issue.kind === "prompt" ? "Prompt needs a fix" : "Reference note",
+        detail: issue.message,
+      }
+    : phase === "complete"
+      ? {
+          key: "result",
+          tone: "success" as const,
+          title: resultTitle,
+          detail: "Ready for review.",
+        }
+      : isChecking
+        ? {
+            key: phase,
+            tone: "checking" as const,
+            title: currentPhase.label,
+            detail: currentPhase.detail,
+          }
+        : null;
 
   useEffect(() => {
     setReferences(existingReferences);
@@ -375,7 +397,7 @@ export function ComicGenerationForm({
       </div>
 
       <div className="glass-panel rounded-xl p-0.5 sm:p-1">
-        <div className="rounded-lg border border-border/50 bg-background/80 p-3 sm:p-4">
+        <div className="relative overflow-visible rounded-lg border border-border/50 bg-background/80 p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between">
             <label className="text-[10px] font-medium uppercase tracking-[0.02em] text-muted-foreground">
               Prompt
@@ -395,6 +417,33 @@ export function ComicGenerationForm({
             }
             className="h-16 w-full resize-none border-none bg-transparent text-sm leading-relaxed text-white outline-none placeholder:text-muted-foreground/50"
           />
+
+          <div className="pointer-events-none absolute inset-x-3 top-[5.9rem] z-10 sm:inset-x-4">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {overlayState && (
+                <motion.div
+                  key={overlayState.key}
+                  initial={{ opacity: 0, y: -10, scale: 0.98, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: -8, scale: 0.98, filter: "blur(4px)" }}
+                  transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+                  className={cn(
+                    "mx-auto flex min-h-10 max-w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2.5 py-2 text-xs shadow-[0_12px_36px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-md",
+                    overlayState.tone === "prompt" && "bg-red-950/90 text-red-100",
+                    overlayState.tone === "photo" && "bg-amber-950/90 text-amber-100",
+                    overlayState.tone === "checking" && "bg-zinc-950/90 text-muted-foreground",
+                    overlayState.tone === "success" && "bg-emerald-950/90 text-emerald-50",
+                  )}
+                >
+                  <OverlayIcon tone={overlayState.tone} isGenerating={isGenerating} />
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium text-white">{overlayState.title}</span>
+                    <span className="hidden sm:inline"> · {overlayState.detail}</span>
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <div className="mt-3 flex flex-col gap-3 border-t border-border/30 pt-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -452,139 +501,80 @@ export function ComicGenerationForm({
             </div>
 
             <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsStyleOpen((current) => !current)}
-                className="flex min-h-8 items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-white"
-              >
-                <span className={cn("h-4 w-4 shrink-0 rounded bg-gradient-to-br", selectedStyle.gradient)} />
-                <span>{selectedStyle.name}</span>
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-
-              <AnimatePresence initial={false}>
-                {isStyleOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 4 }}
-                    transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-                    className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-border/50 bg-background p-3 shadow-2xl"
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsStyleOpen((current) => !current)}
+                    className="flex min-h-8 items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-white"
                   >
-                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                      Style
-                    </p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {styles.map((style) => {
-                        const isSelected = selectedStyle.name === style.name;
-                        return (
-                          <button
-                            key={style.name}
-                            type="button"
-                            onClick={() => {
-                              setSelectedStyle(style);
-                              setIsStyleOpen(false);
-                            }}
-                            className={cn(
-                              "relative aspect-square overflow-hidden rounded-lg border-2 text-left transition-colors",
-                              isSelected ? "border-white" : "border-transparent hover:border-white/30",
-                            )}
-                          >
-                            <div className={cn("absolute inset-0 bg-gradient-to-br", style.gradient)} />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                            <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-medium leading-tight text-white">
-                              {style.name}
-                            </span>
-                            {isSelected && (
-                              <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white">
-                                <Check className="h-2.5 w-2.5 text-black" />
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    <span className={cn("h-4 w-4 shrink-0 rounded bg-gradient-to-br", selectedStyle.gradient)} />
+                    <span>{selectedStyle.name}</span>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {isStyleOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 4 }}
+                        transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+                        className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-border/50 bg-background p-3 shadow-2xl"
+                      >
+                        <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                          Style
+                        </p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {styles.map((style) => {
+                            const isSelected = selectedStyle.name === style.name;
+                            return (
+                              <button
+                                key={style.name}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedStyle(style);
+                                  setIsStyleOpen(false);
+                                }}
+                                className={cn(
+                                  "relative aspect-square overflow-hidden rounded-lg border-2 text-left transition-colors",
+                                  isSelected ? "border-white" : "border-transparent hover:border-white/30",
+                                )}
+                              >
+                                <div className={cn("absolute inset-0 bg-gradient-to-br", style.gradient)} />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                                <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-medium leading-tight text-white">
+                                  {style.name}
+                                </span>
+                                {isSelected && (
+                                  <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white">
+                                    <Check className="h-2.5 w-2.5 text-black" />
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSubmit}
+                  disabled={!prompt.trim() || isGenerating}
+                  className="h-8 bg-white text-black transition-transform hover:bg-neutral-200 active:scale-[0.96]"
+                >
+                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {submitLabel ?? (mode === "new-story" ? "Create story" : "Generate page")}
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="mt-3 rounded-lg border border-border/50 bg-background/45 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-white">{currentPhase.label}</p>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{currentPhase.detail}</p>
-          </div>
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-            {currentPhase.progress}%
-          </span>
-        </div>
-        <Progress value={currentPhase.progress} className="mt-3 h-1.5 bg-white/10" />
-      </div>
-
-      <AnimatePresence initial={false}>
-        {issue && (
-          <motion.div
-            key={`${issue.kind}-${issue.message}`}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-            className={cn(
-              "mt-3 flex items-start gap-3 rounded-lg p-3 text-sm",
-              issue.kind === "prompt"
-                ? "bg-red-500/10 text-red-100"
-                : "bg-amber-500/10 text-amber-100",
-            )}
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="font-medium">
-                {issue.kind === "prompt" ? "Prompt needs a fix" : "Reference note"}
-              </p>
-              <p className="mt-1 leading-relaxed text-current/75">{issue.message}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence initial={false}>
-        {phase === "complete" && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-            className="mt-3 flex gap-3 rounded-lg bg-emerald/10 p-3"
-          >
-            <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded bg-gradient-to-br from-cyan-300 via-indigo-500 to-rose-500" />
-            <div className="flex min-w-0 flex-col justify-center">
-              <p className="truncate text-sm font-medium text-white">{resultTitle}</p>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                This is the shared post-generation result state.
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs text-muted-foreground">
-          {selectedReferences.length} selected reference{selectedReferences.length === 1 ? "" : "s"}
-        </div>
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!prompt.trim() || isGenerating}
-          className="bg-white text-black transition-transform hover:bg-neutral-200 active:scale-[0.96]"
-        >
-          {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {submitLabel ?? (mode === "new-story" ? "Create story" : "Generate page")}
-          <ArrowRight className="h-4 w-4" />
-        </Button>
       </div>
 
       {previewReference && (
@@ -624,6 +614,28 @@ function ReferenceSwatch({ reference }: { reference: ReferenceItem }) {
   }
 
   return <div className={cn("h-full w-full bg-gradient-to-br", reference.gradient)} />;
+}
+
+function OverlayIcon({
+  tone,
+  isGenerating,
+}: {
+  tone: "photo" | "prompt" | "checking" | "success";
+  isGenerating: boolean;
+}) {
+  if (tone === "checking" && isGenerating) {
+    return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-white" />;
+  }
+
+  if (tone === "checking") {
+    return <Wand2 className="h-3.5 w-3.5 shrink-0 text-indigo-light" />;
+  }
+
+  if (tone === "success") {
+    return <Check className="h-3.5 w-3.5 shrink-0 text-emerald" />;
+  }
+
+  return <AlertTriangle className="h-3.5 w-3.5 shrink-0" />;
 }
 
 function UploadButton({ onClick }: { onClick: () => void }) {
