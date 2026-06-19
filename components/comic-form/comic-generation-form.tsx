@@ -189,33 +189,24 @@ export function ComicGenerationForm({
 
   const currentPhase = phaseCopy[phase];
   const isGenerating = phase === "generating-story" || phase === "generating-image";
-  const isChecking =
-    phase === "validating-photos" ||
-    phase === "ready" ||
-    phase === "generating-story" ||
-    phase === "generating-image";
-  const overlayState = issue
+  const isWorking = phase === "validating-photos" || isGenerating;
+  const issueOverlay = issue
     ? {
         key: `${issue.kind}-${issue.message}`,
         tone: issue.kind,
         title: issue.kind === "prompt" ? "Prompt needs a fix" : "Reference note",
         detail: issue.message,
       }
-    : phase === "complete"
-      ? {
-          key: "result",
-          tone: "success" as const,
-          title: resultTitle,
-          detail: "Ready for review.",
-        }
-      : isChecking
-        ? {
-            key: phase,
-            tone: "checking" as const,
-            title: currentPhase.label,
-            detail: currentPhase.detail,
-          }
-        : null;
+    : null;
+  const busyOverlay = !issue && (isGenerating || phase === "complete")
+    ? {
+        key: "workflow-overlay",
+        tone: phase === "complete" ? "success" as const : "checking" as const,
+        title: phase === "complete" ? resultTitle : currentPhase.label,
+        detail: phase === "complete" ? "Ready for review." : currentPhase.detail,
+        progress: currentPhase.progress,
+      }
+    : null;
 
   useEffect(() => {
     setReferences(existingReferences);
@@ -307,7 +298,7 @@ export function ComicGenerationForm({
       message: "A child reference was detected. We will use broad, non-identifying traits and continue.",
     });
     setPhase("photo-warning");
-    await wait(1300);
+    await wait(2800);
     if (runIdRef.current !== runId) return;
 
     setIssue({
@@ -315,15 +306,11 @@ export function ComicGenerationForm({
       message: "The prompt uses protected character names. Replace them with original descriptions.",
     });
     setPhase("prompt-issue");
-    await wait(1500);
+    await wait(3400);
     if (runIdRef.current !== runId) return;
 
     setPrompt(FIXED_PROMPT);
     setIssue(null);
-    setPhase("ready");
-    await wait(700);
-    if (runIdRef.current !== runId) return;
-
     setPhase("generating-story");
     await wait(1000);
     if (runIdRef.current !== runId) return;
@@ -418,32 +405,91 @@ export function ComicGenerationForm({
             className="h-16 w-full resize-none border-none bg-transparent text-sm leading-relaxed text-white outline-none placeholder:text-muted-foreground/50"
           />
 
-          <div className="pointer-events-none absolute inset-x-3 top-[5.9rem] z-10 sm:inset-x-4">
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-30 sm:inset-x-4">
             <AnimatePresence mode="popLayout" initial={false}>
-              {overlayState && (
+              {issueOverlay && (
                 <motion.div
-                  key={overlayState.key}
-                  initial={{ opacity: 0, y: -10, scale: 0.98, filter: "blur(4px)" }}
+                  key={issueOverlay.key}
+                  initial={{ opacity: 0, y: -8, scale: 0.98, filter: "blur(4px)" }}
                   animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
                   exit={{ opacity: 0, y: -8, scale: 0.98, filter: "blur(4px)" }}
                   transition={{ type: "spring", duration: 0.3, bounce: 0 }}
                   className={cn(
-                    "mx-auto flex min-h-10 max-w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2.5 py-2 text-xs shadow-[0_12px_36px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-md",
-                    overlayState.tone === "prompt" && "bg-red-950/90 text-red-100",
-                    overlayState.tone === "photo" && "bg-amber-950/90 text-amber-100",
-                    overlayState.tone === "checking" && "bg-zinc-950/90 text-muted-foreground",
-                    overlayState.tone === "success" && "bg-emerald-950/90 text-emerald-50",
+                    "mx-auto flex w-fit max-w-[min(28rem,calc(100%-0.5rem))] items-start gap-2 rounded-md px-3 py-2.5 text-xs leading-relaxed shadow-[0_12px_36px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-md sm:ml-auto sm:mr-0",
+                    issueOverlay.tone === "prompt" && "bg-red-950/92 text-red-100",
+                    issueOverlay.tone === "photo" && "bg-amber-950/92 text-amber-100",
                   )}
                 >
-                  <OverlayIcon tone={overlayState.tone} isGenerating={isGenerating} />
-                  <span className="min-w-0 truncate">
-                    <span className="font-medium text-white">{overlayState.title}</span>
-                    <span className="hidden sm:inline"> · {overlayState.detail}</span>
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block font-medium text-white">{issueOverlay.title}</span>
+                    <span className="mt-0.5 block text-pretty text-current/80">{issueOverlay.detail}</span>
                   </span>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
+
+          <AnimatePresence initial={false}>
+            {busyOverlay && (
+              <motion.div
+                key={busyOverlay.key}
+                initial={{ opacity: 0, scale: 0.985, filter: "blur(4px)" }}
+                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, scale: 0.985, filter: "blur(4px)" }}
+                transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-lg bg-background/92 px-6 text-center backdrop-blur-md"
+              >
+                <motion.div
+                  key={`${busyOverlay.key}-icon`}
+                  initial={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+                  transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+                  className={cn(
+                    "mb-4 flex h-12 w-12 items-center justify-center rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.08)]",
+                    busyOverlay.tone === "success" ? "bg-emerald/15 text-emerald" : "bg-white/8 text-white",
+                  )}
+                >
+                  {busyOverlay.tone === "success" ? (
+                    <Check className="h-5 w-5" />
+                  ) : (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  )}
+                </motion.div>
+                <motion.p
+                  key={`${busyOverlay.key}-title`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ type: "spring", duration: 0.3, bounce: 0, delay: 0.03 }}
+                  className="text-sm font-medium text-white"
+                >
+                  {busyOverlay.title}
+                </motion.p>
+                <motion.p
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ type: "spring", duration: 0.3, bounce: 0, delay: 0.06 }}
+                  className="mt-1 max-w-sm text-pretty text-xs leading-relaxed text-muted-foreground"
+                >
+                  {busyOverlay.detail}
+                </motion.p>
+                <div className="mt-5 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
+                  <motion.div
+                    className={cn(
+                      "h-full rounded-full",
+                      busyOverlay.tone === "success" ? "bg-emerald" : "bg-white",
+                    )}
+                    initial={false}
+                    animate={{ width: `${busyOverlay.progress}%` }}
+                    transition={{ type: "spring", duration: 0.5, bounce: 0 }}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="mt-3 flex flex-col gap-3 border-t border-border/30 pt-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -564,10 +610,10 @@ export function ComicGenerationForm({
                   type="button"
                   size="sm"
                   onClick={handleSubmit}
-                  disabled={!prompt.trim() || isGenerating}
+                  disabled={!prompt.trim() || isWorking}
                   className="h-8 bg-white text-black transition-transform hover:bg-neutral-200 active:scale-[0.96]"
                 >
-                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {submitLabel ?? (mode === "new-story" ? "Create story" : "Generate page")}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -577,27 +623,44 @@ export function ComicGenerationForm({
         </div>
       </div>
 
-      {previewReference && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-          onClick={() => setPreviewReference(null)}
-        >
-          <div className="relative max-h-[80vh] max-w-sm rounded-xl bg-background p-4 shadow-2xl">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute right-2 top-2 h-8 w-8 hover:bg-white/10"
-              onClick={() => setPreviewReference(null)}
+      <AnimatePresence initial={false}>
+        {previewReference && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
+            onClick={() => setPreviewReference(null)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <motion.div
+              className="relative rounded-[18px] bg-background/95 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.45),0_0_0_1px_rgba(255,255,255,0.08)]"
+              onClick={(event) => event.stopPropagation()}
+              initial={{ opacity: 0, y: 8, scale: 0.96, filter: "blur(4px)" }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: 6, scale: 0.98, filter: "blur(4px)" }}
+              transition={{ type: "spring", duration: 0.3, bounce: 0 }}
             >
-              <X className="h-4 w-4" />
-            </Button>
-            <div className="h-72 w-60 overflow-hidden rounded-lg">
-              <ReferenceSwatch reference={previewReference} />
-            </div>
-          </div>
-        </div>
-      )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute -right-3 -top-3 z-10 h-10 w-10 rounded-full bg-neutral-950/90 text-white shadow-[0_8px_24px_rgba(0,0,0,0.35),0_0_0_1px_rgba(255,255,255,0.12)] backdrop-blur-md transition-transform hover:bg-neutral-900 active:scale-[0.96]"
+                onClick={() => setPreviewReference(null)}
+                aria-label="Close preview"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+              <div className="h-56 w-44 overflow-hidden rounded-xl shadow-[0_0_0_1px_rgba(255,255,255,0.08)] sm:h-64 sm:w-52">
+                <ReferenceSwatch reference={previewReference} />
+              </div>
+              <p className="max-w-44 truncate px-1 pb-1 pt-2 text-center text-xs text-muted-foreground sm:max-w-52">
+                {previewReference.name}
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }
@@ -616,27 +679,6 @@ function ReferenceSwatch({ reference }: { reference: ReferenceItem }) {
   return <div className={cn("h-full w-full bg-gradient-to-br", reference.gradient)} />;
 }
 
-function OverlayIcon({
-  tone,
-  isGenerating,
-}: {
-  tone: "photo" | "prompt" | "checking" | "success";
-  isGenerating: boolean;
-}) {
-  if (tone === "checking" && isGenerating) {
-    return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-white" />;
-  }
-
-  if (tone === "checking") {
-    return <Wand2 className="h-3.5 w-3.5 shrink-0 text-indigo-light" />;
-  }
-
-  if (tone === "success") {
-    return <Check className="h-3.5 w-3.5 shrink-0 text-emerald" />;
-  }
-
-  return <AlertTriangle className="h-3.5 w-3.5 shrink-0" />;
-}
 
 function UploadButton({ onClick }: { onClick: () => void }) {
   return (
