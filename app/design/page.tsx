@@ -40,8 +40,7 @@ export default function DesignPage() {
           </h1>
           <p className="max-w-3xl text-pretty text-sm leading-relaxed text-muted-foreground">
             Shared UX surface for homepage story creation, library story creation,
-            and continuing an existing comic page. Use Play to run the mocked
-            validation, prompt-fix, generation, and result states.
+            and continuing an existing comic page.
           </p>
         </header>
 
@@ -51,7 +50,6 @@ export default function DesignPage() {
             title="Create a new story"
             description="The homepage and /stories modal should use this same component with an empty prompt and optional uploaded references."
             submitLabel="Create story"
-            demo
           />
           <ComicGenerationForm
             mode="new-page"
@@ -60,7 +58,6 @@ export default function DesignPage() {
             submitLabel="Generate page"
             pageNumber={3}
             existingReferences={pageReferences}
-            demo
           />
         </section>
       </main>

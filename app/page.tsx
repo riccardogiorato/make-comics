@@ -13,16 +13,15 @@ const PREVIEW_STYLE_IDS = ["american-modern", "manga", "retro-noir", "indie-vect
 export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
   const [autoPlay, setAutoPlay] = useState(true);
+  const [style, setSelectedStyle] = useState<string>(PREVIEW_STYLE_IDS[0]);
   const [prompt, setPrompt] = useState("");
   const [characterFiles, setCharacterFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Derive the active style from currentPage so there is one source of truth
-  const style = PREVIEW_STYLE_IDS[currentPage - 1] ?? PREVIEW_STYLE_IDS[0];
-
-  // When the user picks a style in the form, jump the preview to that style
+  // When the user picks a style in the form, keep generation stable and jump the preview to that style.
   const setStyle = (s: string) => {
     const idx = PREVIEW_STYLE_IDS.indexOf(s as typeof PREVIEW_STYLE_IDS[number]);
+    setSelectedStyle(s);
     if (idx !== -1) {
       setCurrentPage(idx + 1);
       setAutoPlay(false); // user took control — pause auto-play

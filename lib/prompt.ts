@@ -11,6 +11,7 @@ export function buildComicPrompt({
   prompt,
   style,
   characterImages = [],
+  characterReferenceDescriptions = [],
   isContinuation = false,
   previousContext = "",
   isAddPage = false,
@@ -19,6 +20,7 @@ export function buildComicPrompt({
   prompt: string;
   style?: string;
   characterImages?: string[];
+  characterReferenceDescriptions?: string[];
   isContinuation?: boolean;
   previousContext?: string;
   isAddPage?: boolean;
@@ -88,12 +90,20 @@ REFERENCE PHOTOS — FACE ONLY (TWO CHARACTERS):
     }
   }
 
+  if (characterReferenceDescriptions.length > 0) {
+    characterSection += `
+REFERENCE DESCRIPTIONS — NO DIRECT FACE COPY:
+${characterReferenceDescriptions.map((line) => `- ${line}`).join("\n")}
+- Treat these as written character guidance only; do not attempt photoreal identity recreation from them.`;
+  }
+
   const systemPrompt = `Professional comic book page illustration.
 ${continuationContext}
 ${characterSection}
 
 CHARACTER CONSISTENCY RULES:
 - If reference images are provided, use them ONLY for the hero's face — body, costume, and species come from the story description
+- If only a reference description is provided, follow that written description without recreating the uploaded face
 - The hero's face must remain consistent across all panels they appear in
 - Apply comic style to body/pose/action while keeping the face true to the reference
 

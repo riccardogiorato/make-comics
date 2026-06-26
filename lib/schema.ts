@@ -1,5 +1,6 @@
 import { pgTable, text, integer, timestamp, uuid, jsonb, boolean, serial, bigint } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+import type { StoredCharacterReference } from './reference-analysis';
 
 // Stories table
 export const stories = pgTable('stories', {
@@ -21,6 +22,7 @@ export const pages = pgTable('pages', {
   pageNumber: integer('page_number').notNull(),
   prompt: text('prompt').notNull(),
   characterImageUrls: jsonb('character_image_urls').$type<string[]>().default([]).notNull(),
+  characterReferences: jsonb('character_references').$type<StoredCharacterReference[]>().default([]).notNull(),
   generatedImageUrl: text('generated_image_url'),
   // #1 moderation rewrite: non-null when the original prompt was rewritten
   finalPrompt: text('final_prompt'),

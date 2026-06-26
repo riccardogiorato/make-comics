@@ -1,5 +1,6 @@
 import { db } from './db';
 import { stories, pages, feedback, type Story, type Page, type Feedback } from './schema';
+import type { StoredCharacterReference } from './reference-analysis';
 import { and, eq, gte, isNotNull, sql } from 'drizzle-orm';
 import { generateComicSlug } from './slug-generator';
 
@@ -31,6 +32,7 @@ export async function createPage(data: {
   pageNumber: number;
   prompt: string;
   characterImageUrls: string[];
+  characterReferences?: StoredCharacterReference[];
 }): Promise<Page> {
   const [page] = await db.insert(pages).values(data).returning();
   return page;

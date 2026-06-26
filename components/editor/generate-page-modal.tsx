@@ -17,7 +17,14 @@ import {
 } from "@/components/ui/dialog";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { useToast } from "@/hooks/use-toast";
+import {
+  toStoredCharacterReference,
+  type ReferenceAnalysisSummary,
+  type StoredCharacterReference,
+} from "@/lib/reference-analysis";
 import { isContentPolicyViolation } from "@/lib/utils";
+
+type ExistingCharacterReference = Partial<StoredCharacterReference> & { url: string };
 
 interface GeneratePageModalProps {
   isOpen: boolean;
@@ -25,13 +32,15 @@ interface GeneratePageModalProps {
   onGenerate: (data: {
     prompt: string;
     characterUrls?: string[];
+    characterReferences?: StoredCharacterReference[];
   }) => Promise<void>;
   pageNumber: number;
   isRedrawMode?: boolean;
   existingPrompt?: string;
-  existingCharacters?: string[];
-  lastPageCharacters?: string[];
-  previousPageCharacters?: string[];
+  existingCharacters?: ExistingCharacterReference[];
+  lastPageCharacters?: ExistingCharacterReference[];
+  previousPageCharacters?: ExistingCharacterReference[];
+  apiKey?: string;
 }
 
 function filenameFromUrl(url: string, index: number) {
@@ -45,34 +54,35 @@ function filenameFromUrl(url: string, index: number) {
 }
 
 function makeExistingReferences(
-  existingCharacters: string[],
-  lastPageCharacters: string[],
-  previousPageCharacters: string[],
+  existingCharacters: ExistingCharacterReference[],
+  lastPageCharacters: ExistingCharacterReference[],
+  previousPageCharacters: ExistingCharacterReference[],
 ): ReferenceItem[] {
   const defaultUrls: string[] = [];
 
   if (lastPageCharacters.length >= 2) {
-    defaultUrls.push(...lastPageCharacters.slice(0, 2));
+    defaultUrls.push(...lastPageCharacters.slice(0, 2).map((reference) => reference.url));
   } else {
-    defaultUrls.push(...lastPageCharacters);
-    for (const url of previousPageCharacters) {
+    defaultUrls.push(...lastPageCharacters.map((reference) => reference.url));
+    for (const reference of previousPageCharacters) {
       if (defaultUrls.length >= 2) break;
-      if (!defaultUrls.includes(url)) {
-        defaultUrls.push(url);
+      if (!defaultUrls.includes(reference.url)) {
+        defaultUrls.push(reference.url);
       }
     }
   }
 
-  return existingCharacters.map((url, index) => ({
-    id: `existing-${index}-${url}`,
-    name: filenameFromUrl(url, index),
-    kind: "unknown",
-    status: defaultUrls.includes(url) ? "selected" : "ready",
-    selected: defaultUrls.includes(url),
+  return existingCharacters.map((reference, index) => ({
+    id: `existing-${index}-${reference.url}`,
+    name: filenameFromUrl(reference.url, index),
+    kind: reference.kind || "unknown",
+    status: defaultUrls.includes(reference.url) ? "selected" : reference.severity === "warning" ? "warning" : "ready",
+    selected: defaultUrls.includes(reference.url),
     source: "existing",
-    url,
-    previewUrl: url,
-    note: "existing reference",
+    url: reference.url,
+    previewUrl: reference.url,
+    note: reference.severity === "warning" ? "broad traits only" : reference.description || "existing reference",
+    analysis: reference.success ? reference as StoredCharacterReference : undefined,
   }));
 }
 
@@ -86,6 +96,7 @@ export function GeneratePageModal({
   existingCharacters = [],
   lastPageCharacters = [],
   previousPageCharacters = [],
+  apiKey,
 }: GeneratePageModalProps) {
   const { toast } = useToast();
   const { uploadToS3 } = useS3Upload();
@@ -106,24 +117,91 @@ export function GeneratePageModal({
     setIsGenerating(false);
   }, [existingPrompt, initialReferences, isOpen, isRedrawMode]);
 
+  const analyzeReference = async (reference: ReferenceItem) => {
+    const imageUrl = reference.url || reference.previewUrl;
+    if (!imageUrl) {
+      return { status: "ready" as const, note: "ready" };
+    }
+
+    const response = await fetch("/api/analyze-reference", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageUrl,
+        ...(apiKey && { apiKey }),
+      }),
+    });
+    const result = await response.json() as {
+      success?: boolean;
+      error?: string;
+      message?: string;
+      kind?: ReferenceItem["kind"];
+      severity?: "ok" | "warning" | "blocked";
+      description?: string;
+      isHuman?: boolean;
+      type?: string;
+      ageGroup?: ReferenceAnalysisSummary["ageGroup"];
+      estimatedAge?: number | null;
+      isUnderFive?: boolean;
+      directReferenceAllowed?: boolean;
+    };
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || result.message || "We could not analyze this reference.");
+    }
+
+    const analysis: ReferenceAnalysisSummary = {
+      success: true,
+      kind: result.kind || "unknown",
+      isHuman: result.isHuman ?? false,
+      type: result.type || "unknown",
+      ageGroup: result.ageGroup || "unknown",
+      estimatedAge: result.estimatedAge ?? null,
+      isUnderFive: result.isUnderFive ?? false,
+      description: result.description || "Reference analyzed.",
+      severity: result.severity || "ok",
+      directReferenceAllowed: result.directReferenceAllowed ?? (result.severity !== "warning" && result.severity !== "blocked"),
+      message: result.message,
+    };
+
+    return {
+      kind: analysis.kind,
+      status: analysis.severity === "blocked" ? "blocked" as const : analysis.severity === "warning" ? "warning" as const : "ready" as const,
+      note: analysis.severity === "warning" ? "broad traits only" : analysis.description,
+      analysis,
+      message: result.message,
+    };
+  };
+
   const handleGenerate = async ({ prompt, references }: ComicGenerationSubmitData) => {
     setIsGenerating(true);
 
     try {
       const selected = references.filter((reference) => reference.selected).slice(-2);
-      const characterUrls = await Promise.all(
+      const resolvedReferences = await Promise.all(
         selected.map(async (reference) => {
           if (reference.source === "uploaded" && reference.file) {
             const { url } = await uploadToS3(reference.file);
-            return url;
+            return { ...reference, url };
           }
-          return reference.url || reference.previewUrl || "";
+          return reference;
         }),
       );
+      const characterUrls = resolvedReferences
+        .map((reference) => reference.url || reference.previewUrl || "")
+        .filter(Boolean);
+      const characterReferences = resolvedReferences
+        .filter((reference) => reference.analysis && (reference.url || reference.previewUrl))
+        .map((reference) =>
+          toStoredCharacterReference(
+            reference.url || reference.previewUrl || "",
+            reference.analysis!,
+          ),
+        );
 
       await onGenerate({
         prompt,
-        characterUrls: characterUrls.filter(Boolean).length > 0 ? characterUrls.filter(Boolean) : undefined,
+        characterUrls: characterUrls.length > 0 ? characterUrls : undefined,
+        characterReferences: characterReferences.length > 0 ? characterReferences : undefined,
       });
     } catch (error) {
       console.error("Error generating page:", error);
@@ -192,6 +270,7 @@ export function GeneratePageModal({
             autoFocusPrompt
             disabled={isGenerating}
             isSubmitting={isGenerating}
+            onAnalyzeReference={analyzeReference}
             onSubmit={handleGenerate}
             footer={
               <p className="text-xs text-muted-foreground/70">

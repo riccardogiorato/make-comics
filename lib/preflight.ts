@@ -1,37 +1,27 @@
 import Together from "together-ai";
+import {
+  type ReferenceAnalysisSummary,
+  type ReferenceKind,
+  shouldUseDirectReference,
+} from "@/lib/reference-analysis";
 
 const VISION_MODELS = ["Qwen/Qwen3.5-397B-A17B", "Qwen/Qwen3.5-9B"] as const;
 const PROMPT_VALIDATION_MODEL = "Qwen/Qwen3.5-9B";
 const DEFAULT_TIMEOUT_MS = 10000;
 
-export type ReferenceKind =
-  | "child"
-  | "teen"
-  | "adult"
-  | "senior"
-  | "dog"
-  | "cat"
-  | "animal"
-  | "object"
-  | "unknown";
-
-export type ReferenceAnalysis = {
-  success: boolean;
-  kind: ReferenceKind;
-  isHuman: boolean;
-  type: string;
-  ageGroup?: "child" | "teen" | "adult" | "senior" | "unknown";
-  description: string;
-  severity: "ok" | "warning" | "blocked";
-  message?: string;
+export type ReferenceAnalysis = ReferenceAnalysisSummary & {
   results: VisionModelResult[];
 };
+
+type AgeGroup = "child" | "teen" | "adult" | "senior" | "unknown";
 
 type VisionModelData = {
   description: string;
   isHuman: boolean;
   type: string;
-  ageGroup?: "child" | "teen" | "adult" | "senior" | "unknown";
+  ageGroup: AgeGroup;
+  estimatedAge: number | null;
+  isUnderFive: boolean;
 };
 
 export type VisionModelResult = {
@@ -62,7 +52,7 @@ function extractJson(raw: string): Record<string, unknown> {
   return JSON.parse(content);
 }
 
-function normalizeAgeGroup(value: unknown): VisionModelData["ageGroup"] {
+function normalizeAgeGroup(value: unknown): AgeGroup {
   if (typeof value !== "string") return "unknown";
   const normalized = value.toLowerCase();
   if (normalized === "child" || normalized === "teen" || normalized === "adult" || normalized === "senior") {
@@ -82,7 +72,13 @@ function normalizeType(value: unknown): string {
   return normalized;
 }
 
-function kindFromAnalysis(isHuman: boolean, type: string, ageGroup?: VisionModelData["ageGroup"]): ReferenceKind {
+function normalizeEstimatedAge(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0 || value > 120) return null;
+  return Math.round(value);
+}
+
+function kindFromAnalysis(isHuman: boolean, type: string, ageGroup: AgeGroup): ReferenceKind {
   if (isHuman) {
     if (ageGroup === "child" || ageGroup === "teen" || ageGroup === "senior") return ageGroup;
     return "adult";
@@ -93,31 +89,28 @@ function kindFromAnalysis(isHuman: boolean, type: string, ageGroup?: VisionModel
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  const controller = new AbortController();
-  const timeout = windowlessSetTimeout(() => controller.abort(), timeoutMs);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        controller.signal.addEventListener("abort", () => reject(new Error("Vision analysis timed out.")));
+        timeout = setTimeout(() => reject(new Error("Vision analysis timed out.")), timeoutMs);
       }),
     ]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
-}
-
-function windowlessSetTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
-  return setTimeout(callback, ms);
 }
 
 const VISION_PROMPT = `Analyze this reference image for a comic generation preflight check.
 Return ONLY a JSON object with these exact keys:
-- "description": string, a short non-identifying description such as "an adult person", "a child", "a dog", "a toy object"
+- "description": string, a short non-identifying description such as "an adult person with short dark hair and glasses", "a young child with curly hair", "a dog", "a toy object"
 - "is_human": boolean
 - "type": string, one of "human", "dog", "cat", "animal", "object", or "unknown"
 - "age_group": string, ONLY for humans: one of "child", "teen", "adult", "senior", or "unknown"; for non-humans use "unknown"
+- "estimated_age": number or null, broad estimate only
+- "is_under_five": boolean
 
 Do not identify the person. Do not name real people. Do not infer race or ethnicity.`;
 
@@ -129,39 +122,42 @@ async function runVisionModel(
   const start = Date.now();
 
   try {
-    const responsePromise = client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: VISION_PROMPT },
-            { type: "image_url", image_url: { url: imageUrl } },
-          ],
-        },
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 500,
-    });
-
-    const response = await withTimeout(responsePromise, DEFAULT_TIMEOUT_MS);
+    const response = await withTimeout(
+      client.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: VISION_PROMPT },
+              { type: "image_url", image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 500,
+      }),
+      DEFAULT_TIMEOUT_MS,
+    );
     const raw = response.choices[0]?.message?.content || "";
     const parsed = extractJson(raw);
     const isHuman = parsed.is_human === true;
     const type = normalizeType(parsed.type);
     const ageGroup = isHuman ? normalizeAgeGroup(parsed.age_group) : "unknown";
+    const estimatedAge = isHuman ? normalizeEstimatedAge(parsed.estimated_age) : null;
+    const isUnderFive = isHuman && (parsed.is_under_five === true || (estimatedAge !== null && estimatedAge < 5));
     const description =
       typeof parsed.description === "string" && parsed.description.trim()
         ? parsed.description.trim()
         : isHuman
-          ? `a ${ageGroup || "unknown"} person`
+          ? `a ${ageGroup} person`
           : `a ${type}`;
 
     return {
       model,
       success: true,
       timeMs: Date.now() - start,
-      data: { description, isHuman, type, ageGroup },
+      data: { description, isHuman, type, ageGroup, estimatedAge, isUnderFive },
     };
   } catch (error) {
     return {
@@ -196,8 +192,12 @@ export async function analyzeReferenceImage(params: {
       kind: "unknown",
       isHuman: false,
       type: "unknown",
+      ageGroup: "unknown",
+      estimatedAge: null,
+      isUnderFive: false,
       description: "Could not analyze this reference.",
       severity: "blocked",
+      directReferenceAllowed: false,
       message: "We could not inspect this image. Please try another photo.",
       results,
     };
@@ -209,23 +209,39 @@ export async function analyzeReferenceImage(params: {
     ? "human"
     : mostCommon(successful.map((result) => result.data.type), "unknown");
   const ageGroup = isHuman
-    ? mostCommon(successful.map((result) => result.data.ageGroup || "unknown"), "unknown")
+    ? mostCommon(successful.map((result) => result.data.ageGroup), "unknown")
     : "unknown";
+  const estimatedAges = successful
+    .map((result) => result.data.estimatedAge)
+    .filter((age): age is number => age !== null);
+  const estimatedAge = estimatedAges.length > 0
+    ? Math.round(estimatedAges.reduce((sum, age) => sum + age, 0) / estimatedAges.length)
+    : null;
+  const isUnderFive = isHuman && (successful.some((result) => result.data.isUnderFive) || (estimatedAge !== null && estimatedAge < 5));
   const kind = kindFromAnalysis(isHuman, type, ageGroup);
   const description = successful[0]?.data.description || (isHuman ? "a person" : `a ${type}`);
   const isChild = kind === "child";
-
-  return {
+  const analysis = {
     success: true,
     kind,
     isHuman,
     type,
     ageGroup,
+    estimatedAge,
+    isUnderFive,
     description,
-    severity: isChild ? "warning" : "ok",
-    message: isChild
-      ? "A child reference was detected. We can continue using broad, non-identifying traits."
-      : undefined,
+    severity: isChild ? "warning" as const : "ok" as const,
+    directReferenceAllowed: true,
+  };
+
+  return {
+    ...analysis,
+    directReferenceAllowed: shouldUseDirectReference(analysis),
+    message: isUnderFive
+      ? "A very young child reference was detected. We will use only a broad description, not the face image."
+      : isChild
+        ? "A child reference was detected. We will use broad, non-identifying traits."
+        : undefined,
     results,
   };
 }
@@ -239,6 +255,7 @@ Return ONLY JSON with these exact keys:
 
 Rules:
 - If the prompt references copyrighted or trademarked characters, franchises, celebrities, brands, or protected character names, use "suggested_fix" and rewrite it into fully original characters while preserving broad mood/action.
+- Do not keep signature powers, costume elements, color schemes, species, symbols, catchphrases, or recognizable visual concepts from protected characters.
 - If the prompt asks for sexual content involving minors, explicit sexual content, hateful abuse, graphic real-world violence, or identity deception, use "blocked" and do not provide a rewrite.
 - For normal comic adventure/action prompts, use "ok".
 - Suggested prompts must be original, concise, and usable directly for comic generation.`;
@@ -248,20 +265,7 @@ export async function validatePromptForGeneration(params: {
   prompt: string;
   mode?: "new-story" | "new-page";
 }): Promise<PromptValidationResult> {
-  const response = await params.client.chat.completions.create({
-    model: PROMPT_VALIDATION_MODEL,
-    messages: [
-      { role: "system", content: PROMPT_VALIDATION_SYSTEM },
-      {
-        role: "user",
-        content: `Mode: ${params.mode || "new-story"}\nPrompt:\n${params.prompt}`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.2,
-    max_tokens: 700,
-  });
-
+  const response = await clientWithValidation(params.client, params.prompt, params.mode || "new-story");
   const raw = response.choices[0]?.message?.content || "";
   const parsed = extractJson(raw);
   const status = parsed.status === "blocked" || parsed.status === "suggested_fix" ? parsed.status : "ok";
@@ -281,4 +285,23 @@ export async function validatePromptForGeneration(params: {
           : "Please revise the prompt before generating.",
     suggestedPrompt: status === "suggested_fix" ? suggestedPrompt : undefined,
   };
+}
+
+function clientWithValidation(client: Together, prompt: string, mode: "new-story" | "new-page") {
+  return withTimeout(
+    client.chat.completions.create({
+      model: PROMPT_VALIDATION_MODEL,
+      messages: [
+        { role: "system", content: PROMPT_VALIDATION_SYSTEM },
+        {
+          role: "user",
+          content: `Mode: ${mode}\nPrompt:\n${prompt}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 700,
+    }),
+    DEFAULT_TIMEOUT_MS,
+  );
 }

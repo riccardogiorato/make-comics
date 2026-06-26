@@ -10,8 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ storySlug: string }> }
 ) {
   try {
-    const authResult = await auth();
-    const { userId } = authResult;
+    const { userId } = await auth();
 
     const { storySlug: slug } = await params;
 

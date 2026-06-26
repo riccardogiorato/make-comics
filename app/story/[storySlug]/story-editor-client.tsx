@@ -12,6 +12,7 @@ import { ApiKeyModal } from "@/components/api-key-modal";
 import { PageInfoSheet } from "@/components/editor/page-info-sheet";
 import { GeneratePageModal } from "@/components/editor/generate-page-modal";
 import { StoryLoader } from "@/components/ui/story-loader";
+import type { StoredCharacterReference } from "@/lib/reference-analysis";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,7 @@ interface PageData {
   image: string;
   prompt: string;
   characterUploads?: string[];
+  characterReferences?: StoredCharacterReference[];
   style: string;
   dbId?: string; // actual database UUID
 }
@@ -60,8 +62,8 @@ export function StoryEditorClient() {
   const [showRedrawDialog, setShowRedrawDialog] = useState(false);
   const [loadingPageId, setLoadingPageId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [existingCharacterImages, setExistingCharacterImages] = useState<
-    string[]
+  const [existingCharacterReferences, setExistingCharacterReferences] = useState<
+    Array<Partial<StoredCharacterReference> & { url: string }>
   >([]);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const { toast } = useToast();
@@ -110,18 +112,27 @@ export function StoryEditorClient() {
             image: page.generatedImageUrl || "",
             prompt: page.prompt,
             characterUploads: page.characterImageUrls,
+            characterReferences: page.characterReferences || [],
             style: storyData.style || "noir",
             dbId: page.id,
           }))
         );
 
         // Load existing character images for reuse
-        const uniqueImages = [
-          ...new Set(
-            pagesData.flatMap((page: any) => page.characterImageUrls || [])
-          ),
-        ];
-        setExistingCharacterImages(uniqueImages as string[]);
+        const referencesByUrl = new Map<string, Partial<StoredCharacterReference> & { url: string }>();
+        for (const page of pagesData) {
+          for (const reference of page.characterReferences || []) {
+            if (reference?.url && !referencesByUrl.has(reference.url)) {
+              referencesByUrl.set(reference.url, reference);
+            }
+          }
+          for (const url of page.characterImageUrls || []) {
+            if (typeof url === "string" && !referencesByUrl.has(url)) {
+              referencesByUrl.set(url, { url });
+            }
+          }
+        }
+        setExistingCharacterReferences([...referencesByUrl.values()]);
       } catch (error) {
         console.error("Error loading story:", error);
         toast({
@@ -413,6 +424,7 @@ export function StoryEditorClient() {
   const handleGeneratePage = async (data: {
     prompt: string;
     characterUrls?: string[];
+    characterReferences?: StoredCharacterReference[];
   }): Promise<void> => {
     if (!apiKey) {
       setShowApiModal(true);
@@ -430,6 +442,7 @@ export function StoryEditorClient() {
         storyId: story?.slug,
         prompt: data.prompt,
         characterImages: data.characterUrls || [],
+        characterReferences: data.characterReferences || [],
       }),
     });
 
@@ -440,13 +453,18 @@ export function StoryEditorClient() {
 
     const result = await response.json();
 
-    // Update character images list with new ones
     const newCharacterUrls = data.characterUrls || [];
-    setExistingCharacterImages((prev) => {
-      const combined = [...prev, ...newCharacterUrls];
-      // Remove duplicates while preserving order
-      const unique = Array.from(new Set(combined));
-      return unique;
+    setExistingCharacterReferences((prev) => {
+      const combined = new Map(prev.map((reference) => [reference.url, reference]));
+      for (const url of newCharacterUrls) {
+        if (!combined.has(url)) {
+          combined.set(url, { url });
+        }
+      }
+      for (const reference of data.characterReferences || []) {
+        combined.set(reference.url, reference);
+      }
+      return [...combined.values()];
     });
 
     setPages((prevPages) => [
@@ -457,6 +475,7 @@ export function StoryEditorClient() {
         image: result.imageUrl,
         prompt: data.prompt,
         characterUploads: data.characterUrls || [],
+        characterReferences: data.characterReferences || [],
         style: story?.style || "noir",
         dbId: result.pageId,
       },
@@ -540,17 +559,22 @@ export function StoryEditorClient() {
         onClose={() => setShowGenerateModal(false)}
         onGenerate={handleGeneratePage}
         pageNumber={pages.length + 1}
-        existingCharacters={existingCharacterImages}
+        existingCharacters={existingCharacterReferences}
         lastPageCharacters={
-          pages.length > 0 && pages[pages.length - 1]?.characterUploads
-            ? pages[pages.length - 1].characterUploads || []
+          pages.length > 0 && pages[pages.length - 1]
+            ? pages[pages.length - 1].characterReferences?.length
+              ? pages[pages.length - 1].characterReferences || []
+              : (pages[pages.length - 1].characterUploads || []).map((url) => ({ url }))
             : []
         }
         previousPageCharacters={
-          pages.length > 1 && pages[pages.length - 2]?.characterUploads
-            ? pages[pages.length - 2].characterUploads || []
+          pages.length > 1 && pages[pages.length - 2]
+            ? pages[pages.length - 2].characterReferences?.length
+              ? pages[pages.length - 2].characterReferences || []
+              : (pages[pages.length - 2].characterUploads || []).map((url) => ({ url }))
             : []
         }
+        apiKey={apiKey || undefined}
       />
       <PageInfoSheet
         isOpen={showInfoSheet}

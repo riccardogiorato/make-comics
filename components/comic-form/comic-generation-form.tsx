@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -8,9 +9,6 @@ import {
   ChevronDown,
   ImagePlus,
   Loader2,
-  Pause,
-  Play,
-  RefreshCcw,
   Wand2,
   X,
 } from "lucide-react";
@@ -20,9 +18,10 @@ import { FEATURED_STYLES } from "@/lib/constants";
 import { MAX_USER_PROMPT } from "@/lib/prompt";
 import { cn } from "@/lib/utils";
 import { generateFilePreview, normalizeImageForUpload } from "@/lib/file-utils";
+import type { ReferenceAnalysisSummary } from "@/lib/reference-analysis";
 
 type FormMode = "new-story" | "new-page";
-export type RefKind = "adult" | "child" | "dog" | "cat" | "object" | "unknown";
+export type RefKind = "adult" | "child" | "teen" | "senior" | "dog" | "cat" | "animal" | "object" | "unknown";
 export type RefStatus = "ready" | "checking" | "warning" | "blocked" | "selected";
 type WorkflowPhase =
   | "compose"
@@ -34,18 +33,25 @@ type WorkflowPhase =
   | "generating-image"
   | "complete";
 
+type StyleMenuPosition = {
+  left: number;
+  bottom: number;
+  maxHeight: number;
+};
+
 export type ReferenceItem = {
   id: string;
   name: string;
   kind: RefKind;
   status: RefStatus;
   selected: boolean;
-  source: "existing" | "uploaded" | "mock";
+  source: "existing" | "uploaded";
   file?: File;
   url?: string;
   previewUrl?: string;
   gradient?: string;
   note?: string;
+  analysis?: ReferenceAnalysisSummary;
 };
 
 export type ComicGenerationSubmitData = {
@@ -70,20 +76,17 @@ export type ComicGenerationFormProps = {
   disabled?: boolean;
   isSubmitting?: boolean;
   autoFocusPrompt?: boolean;
+  onAnalyzeReference?: (reference: ReferenceItem) => Promise<Partial<ReferenceItem> & {
+    analysis?: ReferenceAnalysisSummary;
+    message?: string;
+  }>;
   onSubmit?: (data: ComicGenerationSubmitData) => void | Promise<void>;
   pageNumber?: number;
-  demo?: boolean;
   footer?: ReactNode;
 };
 
 const INITIAL_PROMPT =
   "A masked city acrobat chasing a clockwork thief across rainy rooftops, cinematic panels, expressive dialogue.";
-
-const BAD_PROMPT =
-  "Make Spider-Man fight Batman while a famous movie robot saves the city.";
-
-const FIXED_PROMPT =
-  "An original masked rooftop acrobat clashes with a shadowy detective and a handmade rescue automaton above a rain-lit city.";
 
 const STYLE_GRADIENTS: Record<string, string> = {
   "american-modern": "from-blue-700 via-red-600 to-yellow-400",
@@ -93,29 +96,6 @@ const STYLE_GRADIENTS: Record<string, string> = {
 };
 
 const defaultReferences: ReferenceItem[] = [];
-
-const demoReferences: ReferenceItem[] = [
-  {
-    id: "demo-child",
-    name: "Uploaded WebP",
-    kind: "child",
-    status: "checking",
-    selected: true,
-    source: "mock",
-    gradient: "from-pink-300 via-rose-400 to-purple-900",
-    note: "checking",
-  },
-  {
-    id: "demo-object",
-    name: "Toy prop",
-    kind: "object",
-    status: "checking",
-    selected: true,
-    source: "mock",
-    gradient: "from-lime-300 via-emerald-500 to-cyan-900",
-    note: "checking",
-  },
-];
 
 const phaseCopy: Record<WorkflowPhase, { label: string; detail: string; progress: number }> = {
   compose: {
@@ -160,8 +140,6 @@ const phaseCopy: Record<WorkflowPhase, { label: string; detail: string; progress
   },
 };
 
-const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
 function createReferenceFromFile(file: File, previewUrl: string): ReferenceItem {
   return {
     id: `${file.name}-${file.lastModified}`,
@@ -192,24 +170,25 @@ export function ComicGenerationForm({
   disabled = false,
   isSubmitting = false,
   autoFocusPrompt = false,
+  onAnalyzeReference,
   onSubmit,
   pageNumber,
-  demo = false,
   footer,
 }: ComicGenerationFormProps) {
   const [internalPrompt, setInternalPrompt] = useState(mode === "new-story" ? "" : INITIAL_PROMPT);
   const [phase, setPhase] = useState<WorkflowPhase>("compose");
   const [internalReferences, setInternalReferences] = useState<ReferenceItem[]>(existingReferences);
   const [issue, setIssue] = useState<{ kind: "photo" | "prompt"; message: string } | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [internalStyle, setInternalStyle] = useState(FEATURED_STYLES[0]?.id ?? "american-modern");
   const [isStyleOpen, setIsStyleOpen] = useState(false);
   const [previewReference, setPreviewReference] = useState<ReferenceItem | null>(null);
   const [resultTitle, setResultTitle] = useState("");
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const runIdRef = useRef(0);
-  const hasHeader = Boolean(title || description || demo);
+  const styleButtonRef = useRef<HTMLButtonElement>(null);
+  const styleMenuRef = useRef<HTMLDivElement>(null);
+  const [styleMenuPosition, setStyleMenuPosition] = useState<StyleMenuPosition | null>(null);
+  const hasHeader = Boolean(title || description);
 
   const prompt = controlledPrompt ?? internalPrompt;
   const references = controlledReferences ?? internalReferences;
@@ -258,6 +237,58 @@ export function ComicGenerationForm({
     return () => window.cancelAnimationFrame(frame);
   }, [autoFocusPrompt, disabled, isWorking]);
 
+  const measureStyleMenuPosition = () => {
+    if (typeof window === "undefined" || !styleButtonRef.current) return null;
+    if (window.innerWidth < 640) return null;
+
+    const rect = styleButtonRef.current.getBoundingClientRect();
+    const width = 256;
+    const margin = 12;
+    return {
+      left: Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin),
+      bottom: Math.max(margin, window.innerHeight - rect.top + 8),
+      maxHeight: Math.max(180, rect.top - margin * 2),
+    };
+  };
+
+  useEffect(() => {
+    if (!isStyleOpen) return;
+
+    const updatePosition = () => setStyleMenuPosition(measureStyleMenuPosition());
+    updatePosition();
+
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isStyleOpen]);
+
+  useEffect(() => {
+    if (!isStyleOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (styleButtonRef.current?.contains(target) || styleMenuRef.current?.contains(target)) {
+        return;
+      }
+      setIsStyleOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsStyleOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isStyleOpen]);
+
   const updatePrompt = (nextPrompt: string) => {
     if (controlledPrompt === undefined) {
       setInternalPrompt(nextPrompt);
@@ -280,6 +311,12 @@ export function ComicGenerationForm({
     onStyleChange?.(nextStyle);
   };
 
+  const toggleStyleMenu = () => {
+    if (disabled || isWorking) return;
+    setStyleMenuPosition(measureStyleMenuPosition());
+    setIsStyleOpen((current) => !current);
+  };
+
   const toggleReference = (id: string) => {
     if (disabled || isWorking) return;
     updateReferences((current) =>
@@ -299,7 +336,13 @@ export function ComicGenerationForm({
       try {
         const normalized = await normalizeImageForUpload(file);
         const previewUrl = await generateFilePreview(normalized);
-        prepared.push(createReferenceFromFile(normalized, previewUrl));
+        const reference = {
+          ...createReferenceFromFile(normalized, previewUrl),
+          status: onAnalyzeReference ? "checking" as const : "ready" as const,
+          note: onAnalyzeReference ? "analyzing" : "JPEG normalized",
+        };
+
+        prepared.push(reference);
       } catch (error) {
         setIssue({
           kind: "photo",
@@ -315,107 +358,144 @@ export function ComicGenerationForm({
 
     if (prepared.length > 0) {
       updateReferences((current) => [...current, ...prepared].slice(-maxReferences));
+
+      if (onAnalyzeReference) {
+        prepared.forEach((reference) => {
+          void onAnalyzeReference(reference)
+            .then((analysis) => {
+              const { message, ...referenceAnalysis } = analysis;
+              updateReferences((current) =>
+                current.map((item) =>
+                  item.id === reference.id
+                    ? { ...item, ...referenceAnalysis }
+                    : item,
+                ),
+              );
+
+              if (message) {
+                setIssue({ kind: "photo", message });
+                setPhase("photo-warning");
+                window.setTimeout(() => {
+                  setIssue(null);
+                  setPhase("compose");
+                }, 7000);
+              }
+            })
+            .catch((error) => {
+              updateReferences((current) =>
+                current.map((item) =>
+                  item.id === reference.id
+                    ? {
+                        ...item,
+                        status: "blocked",
+                        note: "analysis failed",
+                      }
+                    : item,
+                ),
+              );
+              setIssue({
+                kind: "photo",
+                message: error instanceof Error ? error.message : "We could not analyze this reference.",
+              });
+              setPhase("photo-warning");
+            });
+        });
+      }
     }
   };
 
-  const resetDemo = () => {
-    runIdRef.current += 1;
-    setIsPlaying(false);
-    updatePrompt(mode === "new-story" ? "" : INITIAL_PROMPT);
-    updateReferences(existingReferences);
-    setPhase("compose");
-    setIssue(null);
-    setResultTitle("");
-  };
+  const ensureSelectedReferencesAnalyzed = async (selectedReferences: ReferenceItem[]) => {
+    if (!onAnalyzeReference) return selectedReferences;
 
-  const playDemo = async () => {
-    const runId = runIdRef.current + 1;
-    runIdRef.current = runId;
-    setIsPlaying(true);
-    setResultTitle("");
-    updatePrompt("");
-    updateReferences(existingReferences);
-    setIssue(null);
-    setPhase("compose");
-    await wait(450);
-    if (runIdRef.current !== runId) return;
-
-    updatePrompt(BAD_PROMPT);
-    updateReferences((current) => [...demoReferences, ...current].slice(0, 4));
-    await wait(700);
-    if (runIdRef.current !== runId) return;
-
-    setPhase("validating-photos");
-    await wait(900);
-    if (runIdRef.current !== runId) return;
+    const pendingReferences = selectedReferences.filter(
+      (reference) => !reference.analysis && reference.status !== "checking",
+    );
+    if (pendingReferences.length === 0) return selectedReferences;
 
     updateReferences((current) =>
       current.map((reference) =>
-        reference.id === "demo-child"
-          ? { ...reference, status: "warning", note: "child; broad traits only" }
-          : reference.id === "demo-object"
-            ? { ...reference, status: "ready", note: "object prop" }
-            : reference,
+        pendingReferences.some((pending) => pending.id === reference.id)
+          ? { ...reference, status: "checking", note: "analyzing" }
+          : reference,
       ),
     );
-    setIssue({
-      kind: "photo",
-      message: "A child reference was detected. We will use broad, non-identifying traits and continue.",
-    });
-    setPhase("photo-warning");
-    await wait(2800);
-    if (runIdRef.current !== runId) return;
 
-    setIssue({
-      kind: "prompt",
-      message: "The prompt uses protected character names. Replace them with original descriptions.",
-    });
-    setPhase("prompt-issue");
-    await wait(3400);
-    if (runIdRef.current !== runId) return;
+    const analyzed = await Promise.all(
+      pendingReferences.map(async (reference) => {
+        try {
+          const analysis = await onAnalyzeReference(reference);
+          const { message, ...referenceAnalysis } = analysis;
+          const merged = { ...reference, ...referenceAnalysis };
+          if (message) {
+            setIssue({ kind: "photo", message });
+            setPhase("photo-warning");
+          }
+          return merged;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "We could not analyze this reference.";
+          updateReferences((current) =>
+            current.map((item) =>
+              item.id === reference.id ? { ...item, status: "blocked", note: "analysis failed" } : item,
+            ),
+          );
+          throw new Error(message);
+        }
+      }),
+    );
 
-    updatePrompt(FIXED_PROMPT);
-    setIssue(null);
-    setPhase("generating-story");
-    await wait(1000);
-    if (runIdRef.current !== runId) return;
-
-    setPhase("generating-image");
-    await wait(1300);
-    if (runIdRef.current !== runId) return;
-
-    setResultTitle(mode === "new-story" ? "Rainline Acrobat" : `Page ${pageNumber ?? 3} generated`);
-    setPhase("complete");
-    setIsPlaying(false);
+    const analyzedById = new Map(analyzed.map((reference) => [reference.id, reference]));
+    const nextReferences = references.map((reference) => analyzedById.get(reference.id) ?? reference);
+    updateReferences(nextReferences);
+    return selectedReferences.map((reference) => analyzedById.get(reference.id) ?? reference);
   };
 
   const handleSubmit = async () => {
     if (disabled || isWorking || !prompt.trim()) return;
     setIssue(null);
-    setPhase("validating-photos");
 
     if (onSubmit) {
       try {
+        const selectedReferencesBeforeAnalysis = references.filter((reference) => reference.selected);
+        const needsReferenceAnalysis = Boolean(onAnalyzeReference) &&
+          selectedReferencesBeforeAnalysis.some(
+            (reference) => !reference.analysis && reference.status !== "checking",
+          );
+
+        if (needsReferenceAnalysis) {
+          setPhase("validating-photos");
+        } else {
+          setPhase("ready");
+        }
+
+        const selectedReferences = await ensureSelectedReferencesAnalyzed(selectedReferencesBeforeAnalysis);
+        const blockedReference = selectedReferences.find((reference) => reference.status === "blocked");
+        if (blockedReference) {
+          throw new Error("We could not use one of the uploaded references. Please remove it or upload another image.");
+        }
+        const checkingReference = selectedReferences.find((reference) => reference.status === "checking");
+        if (checkingReference) {
+          throw new Error("Still analyzing the uploaded photo. Please try again in a moment.");
+        }
         await onSubmit({
           prompt,
           style: selectedStyleId,
-          references: references.filter((reference) => reference.selected),
+          references: selectedReferences,
         });
         setIssue(null);
         setPhase("compose");
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not start generation.";
+        const issueKind = /analyz|photo|reference|image/i.test(message) ? "photo" : "prompt";
         setIssue({
-          kind: "prompt",
-          message: error instanceof Error ? error.message : "Could not start generation.",
+          kind: issueKind,
+          message,
         });
-        setPhase("prompt-issue");
+        setPhase(issueKind === "photo" ? "photo-warning" : "prompt-issue");
       }
       return;
     }
 
-    await wait(500);
     setPhase("ready");
-    await wait(250);
     setPhase(mode === "new-story" ? "generating-story" : "generating-image");
   };
 
@@ -437,29 +517,6 @@ export function ComicGenerationForm({
             )}
           </div>
 
-          {demo && (
-            <div className="flex shrink-0 items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={playDemo}
-                disabled={isPlaying}
-                className="bg-white text-black transition-transform hover:bg-neutral-200 active:scale-[0.96]"
-              >
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                Play
-              </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="outline"
-                onClick={resetDemo}
-                className="border-border/70 transition-transform hover:bg-secondary active:scale-[0.96]"
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
@@ -626,7 +683,10 @@ export function ComicGenerationForm({
                 accept="image/png,image/jpeg,image/jpg,image/webp"
                 multiple
                 className="hidden"
-                onChange={(event) => handleUpload(event.target.files)}
+                onChange={(event) => {
+                  void handleUpload(event.target.files);
+                  event.currentTarget.value = "";
+                }}
               />
             </div>
 
@@ -634,8 +694,9 @@ export function ComicGenerationForm({
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <button
+                    ref={styleButtonRef}
                     type="button"
-                    onClick={() => !disabled && !isWorking && setIsStyleOpen((current) => !current)}
+                    onClick={toggleStyleMenu}
                     disabled={disabled || isWorking}
                     className="flex min-h-8 items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-white"
                   >
@@ -648,55 +709,14 @@ export function ComicGenerationForm({
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>
 
-                  <AnimatePresence initial={false}>
-                    {isStyleOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 4 }}
-                        transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-                        className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-border/50 bg-background p-3 shadow-2xl"
-                      >
-                        <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                          Style
-                        </p>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {FEATURED_STYLES.map((style) => {
-                            const isSelected = selectedStyleId === style.id;
-                            return (
-                              <button
-                                key={style.id}
-                                type="button"
-                                onClick={() => {
-                                  updateStyle(style.id);
-                                  setIsStyleOpen(false);
-                                }}
-                                className={cn(
-                                  "relative aspect-square overflow-hidden rounded-lg border-2 text-left transition-colors",
-                                  isSelected ? "border-white" : "border-transparent hover:border-white/30",
-                                )}
-                              >
-                                {style.image ? (
-                                  <img src={style.image} alt={style.name} className="absolute inset-0 h-full w-full object-cover" />
-                                ) : (
-                                  <div className={cn("absolute inset-0 bg-gradient-to-br", STYLE_GRADIENTS[style.id])} />
-                                )}
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                                <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-medium leading-tight text-white">
-                                  {style.name}
-                                </span>
-                                {isSelected && (
-                                  <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white">
-                                    <Check className="h-2.5 w-2.5 text-black" />
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  <StyleSelectorPortal
+                    isOpen={isStyleOpen}
+                    selectedStyleId={selectedStyleId}
+                    position={styleMenuPosition}
+                    menuRef={styleMenuRef}
+                    onClose={() => setIsStyleOpen(false)}
+                    onSelect={updateStyle}
+                  />
                 </div>
 
                 <Button
@@ -706,9 +726,12 @@ export function ComicGenerationForm({
                   disabled={!prompt.trim() || isWorking}
                   className="h-8 bg-white text-black transition-transform hover:bg-neutral-200 active:scale-[0.96]"
                 >
-                  {isWorking && <Loader2 className="h-4 w-4 animate-spin" />}
                   {submitLabel ?? (mode === "new-story" ? "Create story" : "Generate page")}
-                  <ArrowRight className="h-4 w-4" />
+                  {isWorking ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </div>
@@ -756,6 +779,105 @@ export function ComicGenerationForm({
         )}
       </AnimatePresence>
     </section>
+  );
+}
+
+function StyleSelectorPortal({
+  isOpen,
+  selectedStyleId,
+  position,
+  menuRef,
+  onClose,
+  onSelect,
+}: {
+  isOpen: boolean;
+  selectedStyleId: string;
+  position: StyleMenuPosition | null;
+  menuRef: RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  onSelect: (styleId: string) => void;
+}) {
+  if (typeof document === "undefined") return null;
+
+  const desktopStyle: CSSProperties | undefined = position
+    ? {
+        left: position.left,
+        bottom: position.bottom,
+        maxHeight: position.maxHeight,
+      }
+    : undefined;
+
+  return createPortal(
+    <AnimatePresence initial={false}>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0, y: 8, scale: 0.98, filter: "blur(4px)" }}
+          animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+          exit={{ opacity: 0, y: 6, scale: 0.98, filter: "blur(4px)" }}
+          transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+          className="fixed inset-0 z-[100] flex items-end bg-black/55 p-3 backdrop-blur-[2px] sm:inset-auto sm:w-64 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
+          style={desktopStyle}
+          onClick={onClose}
+        >
+          <div
+            ref={menuRef}
+            className="max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-2xl bg-background p-4 shadow-[0_24px_80px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.1)] sm:max-h-[inherit] sm:rounded-xl sm:p-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 sm:mb-2">
+              <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                Style
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/8 hover:text-white sm:hidden"
+                aria-label="Close style selector"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:gap-1.5">
+              {FEATURED_STYLES.map((style) => {
+                const isSelected = selectedStyleId === style.id;
+                return (
+                  <button
+                    key={style.id}
+                    type="button"
+                    onClick={() => {
+                      onSelect(style.id);
+                      onClose();
+                    }}
+                    className={cn(
+                      "relative aspect-square min-h-24 overflow-hidden rounded-xl text-left shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-[scale,box-shadow] active:scale-[0.96] sm:min-h-0 sm:rounded-lg",
+                      isSelected
+                        ? "shadow-[0_0_0_2px_rgba(255,255,255,1),0_16px_40px_rgba(0,0,0,0.28)]"
+                        : "hover:shadow-[0_0_0_1px_rgba(255,255,255,0.25),0_14px_32px_rgba(0,0,0,0.24)]",
+                    )}
+                  >
+                    {style.image ? (
+                      <img src={style.image} alt={style.name} className="absolute inset-0 h-full w-full object-cover" />
+                    ) : (
+                      <div className={cn("absolute inset-0 bg-gradient-to-br", STYLE_GRADIENTS[style.id])} />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-black/12 to-transparent" />
+                    <span className="absolute bottom-2 left-2 right-2 text-xs font-medium leading-tight text-white sm:bottom-1.5 sm:left-1.5 sm:right-1.5 sm:text-[10px]">
+                      {style.name}
+                    </span>
+                    {isSelected && (
+                      <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-[0_8px_20px_rgba(0,0,0,0.25)] sm:right-1.5 sm:top-1.5 sm:h-4 sm:w-4">
+                        <Check className="h-3 w-3 text-black sm:h-2.5 sm:w-2.5" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
   );
 }
 

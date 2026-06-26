@@ -21,3 +21,15 @@ export function isContentPolicyViolation(errorMessage: string): boolean {
 export function getContentPolicyErrorMessage(): string {
   return "Unable to generate image due to content policy. Please try a different prompt.";
 }
+
+export function getFriendlyGenerationErrorMessage(errorMessage: string): string {
+  if (isContentPolicyViolation(errorMessage)) {
+    return "This prompt needs a safer original version before we can generate it.";
+  }
+
+  if (errorMessage.includes("400 {") || errorMessage.includes("Together AI API error")) {
+    return "The image model could not use this request. Please adjust the prompt and try again.";
+  }
+
+  return errorMessage;
+}

@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
 import Together from "together-ai";
-import { auth } from "@clerk/nextjs/server";
 import {
   updatePage,
   updateStory,
@@ -17,6 +16,12 @@ import { COMIC_STYLES } from "@/lib/constants";
 import { uploadImageToS3 } from "@/lib/s3-upload";
 import { buildComicPrompt } from "@/lib/prompt";
 import { generateComicImage } from "@/lib/generate-image";
+import {
+  getDirectReferenceUrls,
+  getReferenceDescriptionLines,
+  type StoredCharacterReference,
+} from "@/lib/reference-analysis";
+import { auth } from "@clerk/nextjs/server";
 
 const TEXT_MODEL = "Qwen/Qwen3.5-9B";
 
@@ -37,9 +42,15 @@ export async function POST(request: NextRequest) {
       apiKey,
       style = "noir",
       characterImages = [],
+      characterReferences = [],
       isContinuation = false,
       previousContext = "",
     } = await request.json();
+    const storedCharacterReferences = Array.isArray(characterReferences)
+      ? characterReferences as StoredCharacterReference[]
+      : [];
+    const directCharacterImages = getDirectReferenceUrls(characterImages, storedCharacterReferences);
+    const characterReferenceDescriptions = getReferenceDescriptionLines(storedCharacterReferences);
 
     if (!prompt) {
       return NextResponse.json(
@@ -83,6 +94,7 @@ export async function POST(request: NextRequest) {
         pageNumber: nextPageNumber,
         prompt,
         characterImageUrls: characterImages,
+        characterReferences: storedCharacterReferences,
       });
 
       // Get previous page image for style consistency (unless it's page 1)
@@ -111,16 +123,19 @@ export async function POST(request: NextRequest) {
         pageNumber: 1,
         prompt,
         characterImageUrls: characterImages,
+        characterReferences: storedCharacterReferences,
       });
     }
 
-    // Use only the character images sent from the frontend
-    referenceImages.push(...characterImages);
+    // Use direct references only when analysis allows it. Child references stay stored
+    // for continuity but become written descriptions in the prompt.
+    referenceImages.push(...directCharacterImages);
 
     const fullPrompt = buildComicPrompt({
       prompt,
       style,
-      characterImages,
+      characterImages: directCharacterImages,
+      characterReferenceDescriptions,
       isContinuation,
       previousContext,
     });

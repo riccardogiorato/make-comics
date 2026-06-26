@@ -6,6 +6,10 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@aws-sdk/client-s3@3.1070.0'
   - lucide-react@1.20.0
+  - '@clerk/backend@3.8.4'
+  - '@clerk/nextjs@7.5.9'
+  - '@clerk/react@6.11.1'
+  - '@clerk/shared@4.22.0'
 overrides:
   fast-xml-parser: '>=5.3.6'
   dompurify: '>=3.3.2'

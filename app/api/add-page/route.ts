@@ -1,15 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import Together from "together-ai";
-import { db } from "@/lib/db";
-import { pages } from "@/lib/schema";
-import { eq } from "drizzle-orm";
 import {
   updatePage,
   createPage,
   getNextPageNumber,
   getStoryWithPagesBySlug,
-  getLastPageImage,
   deletePage,
 } from "@/lib/db-actions";
 import { freeTierRateLimit } from "@/lib/rate-limit";
@@ -17,6 +12,12 @@ import { uploadImageToS3 } from "@/lib/s3-upload";
 import { buildComicPrompt } from "@/lib/prompt";
 import { generateComicImage } from "@/lib/generate-image";
 import { isContentPolicyViolation, getContentPolicyErrorMessage } from "@/lib/utils";
+import {
+  getDirectReferenceUrls,
+  getReferenceDescriptionLines,
+  type StoredCharacterReference,
+} from "@/lib/reference-analysis";
+import { auth } from "@clerk/nextjs/server";
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +35,13 @@ export async function POST(request: NextRequest) {
       pageId,
       prompt,
       characterImages = [],
+      characterReferences = [],
     } = await request.json();
+    const storedCharacterReferences = Array.isArray(characterReferences)
+      ? characterReferences as StoredCharacterReference[]
+      : [];
+    const directCharacterImages = getDirectReferenceUrls(characterImages, storedCharacterReferences);
+    const characterReferenceDescriptions = getReferenceDescriptionLines(storedCharacterReferences);
 
     if (!storyId || !prompt) {
       return NextResponse.json(
@@ -83,6 +90,7 @@ export async function POST(request: NextRequest) {
         pageNumber,
         prompt,
         characterImageUrls: characterImages,
+        characterReferences: storedCharacterReferences,
       });
     }
 
@@ -103,9 +111,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Use only the character images sent from the frontend (user's selection)
-    // These are already the most recent/relevant characters the user wants to use
-    referenceImages.push(...characterImages);
+    // Use only references whose analysis says direct image guidance is appropriate.
+    referenceImages.push(...directCharacterImages);
 
     // Build the prompt with continuation context
     // For redraw, only include pages up to the current page being redrawn
@@ -121,7 +128,8 @@ export async function POST(request: NextRequest) {
     const fullPrompt = buildComicPrompt({
       prompt,
       style: story.style,
-      characterImages,
+      characterImages: directCharacterImages,
+      characterReferenceDescriptions,
       isAddPage: true,
       previousPages,
     });
