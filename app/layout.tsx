@@ -1,10 +1,32 @@
 import type React from "react"
 import type { Metadata } from "next"
+import {
+  Inter,
+  Bangers,
+  Space_Grotesk,
+  Instrument_Serif,
+} from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "@/components/ui/toaster"
 import PlausibleProvider from "next-plausible"
 import { ClerkProvider } from "@clerk/nextjs"
 import "./globals.css"
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
+const bangers = Bangers({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-bangers",
+})
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk",
+})
+const instrumentSerif = Instrument_Serif({
+  weight: ["400"],
+  subsets: ["latin"],
+  variable: "--font-instrument-serif",
+})
 
 export const metadata: Metadata = {
   title: "MakeComics - AI Comic Generator",
@@ -22,7 +44,10 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
+      <html
+        lang="en"
+        className={`${inter.variable} ${bangers.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable}`}
+      >
         <head>
           <PlausibleProvider
             src="https://plausible.io/js/script.js"
