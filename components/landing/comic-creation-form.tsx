@@ -390,7 +390,7 @@ export function ComicCreationForm({
     if (!isLoading && prompt.trim()) {
       void handleCreate({ prompt, style, references: references.filter((reference) => reference.selected) });
     }
-  }, { disabled: isLoading || !isLoaded });
+  }, { disabled: isLoading || !isLoaded || references.some((reference) => reference.status === "checking") });
 
   return (
     <>

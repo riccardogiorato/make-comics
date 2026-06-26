@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     console.error("Error in validate-prompt API:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to validate prompt.",
+        error: "Could not validate this prompt. Please adjust it and try again.",
       },
       { status: 500 },
     );

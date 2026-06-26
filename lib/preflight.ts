@@ -5,9 +5,30 @@ import {
   shouldUseDirectReference,
 } from "@/lib/reference-analysis";
 
-const VISION_MODELS = ["Qwen/Qwen3.5-397B-A17B", "Qwen/Qwen3.5-9B"] as const;
+const VISION_MODELS = ["Qwen/Qwen3.5-9B"] as const;
 const PROMPT_VALIDATION_MODEL = "Qwen/Qwen3.5-9B";
-const DEFAULT_TIMEOUT_MS = 10000;
+const VISION_TIMEOUT_MS = 10000;
+const PROMPT_VALIDATION_TIMEOUT_MS = 10000;
+
+const PROTECTED_REFERENCE_PATTERNS = [
+  /\bbarbie\b/i,
+  /\bgodzilla\b/i,
+  /\bdisney\b/i,
+  /\bmarvel\b/i,
+  /\bdc comics?\b/i,
+  /\bbatman\b/i,
+  /\bsuperman\b/i,
+  /\bspider[-\s]?man\b/i,
+  /\bpokemon\b/i,
+  /\bpikachu\b/i,
+  /\bmario\b/i,
+  /\bsonic\b/i,
+  /\bharry potter\b/i,
+  /\bstar wars\b/i,
+  /\bdarth vader\b/i,
+  /\belsa\b/i,
+  /\bmickey mouse\b/i,
+] as const;
 
 export type ReferenceAnalysis = ReferenceAnalysisSummary & {
   results: VisionModelResult[];
@@ -38,6 +59,20 @@ export type PromptValidationResult = {
   message: string;
   suggestedPrompt?: string;
 };
+
+function getProtectedPromptFallback(prompt: string): PromptValidationResult | null {
+  if (!PROTECTED_REFERENCE_PATTERNS.some((pattern) => pattern.test(prompt))) {
+    return null;
+  }
+
+  return {
+    status: "suggested_fix",
+    issue: "protected_reference",
+    message: "This prompt mentions protected characters or brands, so it needs an original version before generation.",
+    suggestedPrompt:
+      "An original comic scene where a towering city creature and stylish toy-like adventurers are outsmarted by a clever young hero, rendered as dynamic cinematic panels with expressive action and playful stakes.",
+  };
+}
 
 function extractJson(raw: string): Record<string, unknown> {
   let content = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
@@ -88,14 +123,14 @@ function kindFromAnalysis(isHuman: boolean, type: string, ageGroup: AgeGroup): R
   return "unknown";
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error("Vision analysis timed out.")), timeoutMs);
+        timeout = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
       }),
     ]);
   } finally {
@@ -137,7 +172,8 @@ async function runVisionModel(
         response_format: { type: "json_object" },
         max_tokens: 500,
       }),
-      DEFAULT_TIMEOUT_MS,
+      VISION_TIMEOUT_MS,
+      "Vision analysis timed out.",
     );
     const raw = response.choices[0]?.message?.content || "";
     const parsed = extractJson(raw);
@@ -265,9 +301,42 @@ export async function validatePromptForGeneration(params: {
   prompt: string;
   mode?: "new-story" | "new-page";
 }): Promise<PromptValidationResult> {
-  const response = await clientWithValidation(params.client, params.prompt, params.mode || "new-story");
-  const raw = response.choices[0]?.message?.content || "";
-  const parsed = extractJson(raw);
+  const protectedFallback = getProtectedPromptFallback(params.prompt);
+  if (protectedFallback) {
+    return protectedFallback;
+  }
+
+  let raw = "";
+  let parsed: Record<string, unknown> | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let response;
+    try {
+      response = await clientWithValidation(params.client, params.prompt, params.mode || "new-story");
+    } catch (error) {
+      console.warn("Prompt validation request failed", {
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return fallbackPromptValidation(raw, params.prompt);
+    }
+
+    raw = response.choices[0]?.message?.content || "";
+    try {
+      parsed = extractJson(raw);
+      break;
+    } catch (error) {
+      console.warn("Prompt validation returned invalid JSON", {
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (!parsed) {
+    return fallbackPromptValidation(raw, params.prompt);
+  }
+
   const status = parsed.status === "blocked" || parsed.status === "suggested_fix" ? parsed.status : "ok";
   const suggestedPrompt =
     typeof parsed.suggested_prompt === "string" && parsed.suggested_prompt.trim()
@@ -287,6 +356,34 @@ export async function validatePromptForGeneration(params: {
   };
 }
 
+function fallbackPromptValidation(raw: string, prompt: string): PromptValidationResult {
+  const protectedFallback = getProtectedPromptFallback(prompt);
+  if (protectedFallback) {
+    return protectedFallback;
+  }
+
+  const normalized = raw.toLowerCase();
+
+  if (normalized.includes('"status"') && normalized.includes("blocked")) {
+    return {
+      status: "blocked",
+      message: "Please revise the prompt before generating.",
+    };
+  }
+
+  if (normalized.includes('"status"') && normalized.includes("suggested_fix")) {
+    return {
+      status: "blocked",
+      message: "The prompt may need a safer original version. Please adjust it and try again.",
+    };
+  }
+
+  return {
+    status: "ok",
+    message: "Prompt check was inconclusive, generation will continue with server safeguards.",
+  };
+}
+
 function clientWithValidation(client: Together, prompt: string, mode: "new-story" | "new-page") {
   return withTimeout(
     client.chat.completions.create({
@@ -302,6 +399,7 @@ function clientWithValidation(client: Together, prompt: string, mode: "new-story
       temperature: 0.2,
       max_tokens: 700,
     }),
-    DEFAULT_TIMEOUT_MS,
+    PROMPT_VALIDATION_TIMEOUT_MS,
+    "Prompt validation timed out.",
   );
 }

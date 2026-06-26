@@ -125,6 +125,15 @@ export async function POST(request: NextRequest) {
       prompt: p.prompt,
     }));
 
+    const apiKey = request.headers.get("x-api-key")?.trim();
+    const finalApiKey = apiKey || process.env.TOGETHER_API_KEY;
+    if (!finalApiKey) {
+      return NextResponse.json(
+        { error: "Generation is not configured. Please add an API key and try again." },
+        { status: 500 },
+      );
+    }
+
     const fullPrompt = buildComicPrompt({
       prompt,
       style: story.style,
@@ -135,7 +144,7 @@ export async function POST(request: NextRequest) {
     });
 
     const client = new Together({
-      apiKey: process.env.TOGETHER_API_KEY,
+      apiKey: finalApiKey,
     });
 
     let genResult;
@@ -175,7 +184,7 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { error: `Internal server error: ${error instanceof Error ? error.message : "Unknown error"}` },
+        { error: "Failed to generate image. Please try again." },
         { status: 500 },
       );
     }
@@ -183,15 +192,34 @@ export async function POST(request: NextRequest) {
     const s3Key = `${story.id}/page-${page.pageNumber}-${Date.now()}.jpg`;
     const s3ImageUrl = await uploadImageToS3(genResult.imageUrl, s3Key);
 
-    await updatePage(page.id, s3ImageUrl, {
-      model: genResult.model,
-      generationMs: genResult.generationMs,
-      finalPrompt: genResult.finalPrompt,
-    });
+    let updatedImageVariations;
+    try {
+      const variation = await updatePage(page.id, s3ImageUrl, {
+        model: genResult.model,
+        generationMs: genResult.generationMs,
+        finalPrompt: genResult.finalPrompt,
+      });
+      const refreshedStory = await getStoryWithPagesBySlug(storyId);
+      updatedImageVariations =
+        refreshedStory?.pages.find((storyPage) => storyPage.id === page.id)?.imageVariations ??
+        [variation];
+    } catch (dbError) {
+      console.error("Error saving generated page:", dbError);
+      if (!isRedraw) {
+        try {
+          await deletePage(page.id);
+        } catch (cleanupError) {
+          console.error("Cleanup error after page save failure:", cleanupError);
+        }
+      }
+      return NextResponse.json(
+        { error: "Generated image could not be saved. Please try again." },
+        { status: 503 },
+      );
+    }
 
     // Apply rate limiting for free tier after successful generation
-    const hasApiKey = request.headers.get("x-api-key");
-    if (!hasApiKey) {
+    if (!apiKey) {
       try {
         await freeTierRateLimit.limit(userId);
       } catch (rateLimitError) {
@@ -207,16 +235,13 @@ export async function POST(request: NextRequest) {
       imageUrl: s3ImageUrl,
       pageId: page.id,
       pageNumber: page.pageNumber,
+      imageVariations: updatedImageVariations,
       promptAdjusted: genResult.promptAdjusted,
     });
   } catch (error) {
     console.error("Error in add-page API:", error);
     return NextResponse.json(
-      {
-        error: `Internal server error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      },
+      { error: "Could not update this comic page. Please try again." },
       { status: 500 },
     );
   }

@@ -187,16 +187,19 @@ export function ComicGenerationForm({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const styleButtonRef = useRef<HTMLButtonElement>(null);
   const styleMenuRef = useRef<HTMLDivElement>(null);
+  const referencesRef = useRef<ReferenceItem[]>([]);
   const [styleMenuPosition, setStyleMenuPosition] = useState<StyleMenuPosition | null>(null);
   const hasHeader = Boolean(title || description);
 
   const prompt = controlledPrompt ?? internalPrompt;
   const references = controlledReferences ?? internalReferences;
+  referencesRef.current = references;
   const selectedStyleId = controlledStyle ?? internalStyle;
   const selectedStyle = FEATURED_STYLES.find((style) => style.id === selectedStyleId) ?? FEATURED_STYLES[0];
   const currentPhase = phaseCopy[phase];
   const isGenerating = phase === "generating-story" || phase === "generating-image";
   const isWorking = phase === "validating-photos" || isGenerating || isSubmitting;
+  const hasPendingReferenceAnalysis = references.some((reference) => reference.status === "checking");
   const issueOverlay = issue
     ? {
         key: `${issue.kind}-${issue.message}`,
@@ -297,7 +300,9 @@ export function ComicGenerationForm({
   };
 
   const updateReferences = (nextReferences: ReferenceItem[] | ((current: ReferenceItem[]) => ReferenceItem[])) => {
-    const resolved = typeof nextReferences === "function" ? nextReferences(references) : nextReferences;
+    const currentReferences = referencesRef.current;
+    const resolved = typeof nextReferences === "function" ? nextReferences(currentReferences) : nextReferences;
+    referencesRef.current = resolved;
     if (!controlledReferences) {
       setInternalReferences(resolved);
     }
@@ -318,7 +323,7 @@ export function ComicGenerationForm({
   };
 
   const toggleReference = (id: string) => {
-    if (disabled || isWorking) return;
+    if (disabled || isWorking || hasPendingReferenceAnalysis) return;
     updateReferences((current) =>
       current.map((reference) =>
         reference.id === id
@@ -326,6 +331,14 @@ export function ComicGenerationForm({
           : reference,
       ),
     );
+  };
+
+  const removeUploadedReference = (id: string) => {
+    if (disabled || isWorking) return;
+    updateReferences((current) =>
+      current.filter((reference) => reference.id !== id || reference.source !== "uploaded"),
+    );
+    setPreviewReference((current) => (current?.id === id ? null : current));
   };
 
   const handleUpload = async (files: FileList | null) => {
@@ -407,21 +420,25 @@ export function ComicGenerationForm({
   const ensureSelectedReferencesAnalyzed = async (selectedReferences: ReferenceItem[]) => {
     if (!onAnalyzeReference) return selectedReferences;
 
-    const pendingReferences = selectedReferences.filter(
+    const latestReferences = referencesRef.current;
+    const latestSelectedReferences = selectedReferences.map(
+      (reference) => latestReferences.find((item) => item.id === reference.id) ?? reference,
+    );
+    const latestPendingReferences = latestSelectedReferences.filter(
       (reference) => !reference.analysis && reference.status !== "checking",
     );
-    if (pendingReferences.length === 0) return selectedReferences;
+    if (latestPendingReferences.length === 0) return latestSelectedReferences;
 
     updateReferences((current) =>
       current.map((reference) =>
-        pendingReferences.some((pending) => pending.id === reference.id)
+        latestPendingReferences.some((pending) => pending.id === reference.id)
           ? { ...reference, status: "checking", note: "analyzing" }
           : reference,
       ),
     );
 
     const analyzed = await Promise.all(
-      pendingReferences.map(async (reference) => {
+      latestPendingReferences.map(async (reference) => {
         try {
           const analysis = await onAnalyzeReference(reference);
           const { message, ...referenceAnalysis } = analysis;
@@ -444,18 +461,18 @@ export function ComicGenerationForm({
     );
 
     const analyzedById = new Map(analyzed.map((reference) => [reference.id, reference]));
-    const nextReferences = references.map((reference) => analyzedById.get(reference.id) ?? reference);
+    const nextReferences = referencesRef.current.map((reference) => analyzedById.get(reference.id) ?? reference);
     updateReferences(nextReferences);
-    return selectedReferences.map((reference) => analyzedById.get(reference.id) ?? reference);
+    return latestSelectedReferences.map((reference) => analyzedById.get(reference.id) ?? reference);
   };
 
   const handleSubmit = async () => {
-    if (disabled || isWorking || !prompt.trim()) return;
+    if (disabled || isWorking || hasPendingReferenceAnalysis || !prompt.trim()) return;
     setIssue(null);
 
     if (onSubmit) {
       try {
-        const selectedReferencesBeforeAnalysis = references.filter((reference) => reference.selected);
+        const selectedReferencesBeforeAnalysis = referencesRef.current.filter((reference) => reference.selected);
         const needsReferenceAnalysis = Boolean(onAnalyzeReference) &&
           selectedReferencesBeforeAnalysis.some(
             (reference) => !reference.analysis && reference.status !== "checking",
@@ -652,6 +669,21 @@ export function ComicGenerationForm({
                         <ReferenceSwatch reference={reference} />
                         <ReferenceStatusIcon status={reference.status} selected={reference.selected} />
                       </button>
+                      {reference.source === "uploaded" && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeUploadedReference(reference.id);
+                          }}
+                          disabled={disabled || isWorking}
+                          className="absolute -right-1.5 -top-1.5 z-10 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-neutral-950 text-white opacity-100 shadow-[0_4px_12px_rgba(0,0,0,0.35),0_0_0_1px_rgba(255,255,255,0.18)] transition-colors hover:bg-red-500 disabled:pointer-events-none disabled:opacity-40 sm:opacity-0 sm:group-hover/thumb:opacity-100"
+                          aria-label={`Remove ${reference.name}`}
+                          title={`Remove ${reference.name}`}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setPreviewReference(reference)}
@@ -669,8 +701,8 @@ export function ComicGenerationForm({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={disabled || isWorking}
-                  className="flex min-h-8 items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-white"
+                  disabled={disabled || isWorking || hasPendingReferenceAnalysis}
+                  className="flex min-h-8 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground transition-colors hover:text-white"
                 >
                   <ImagePlus className="h-3.5 w-3.5" />
                   <span>Upload Characters</span>
@@ -697,7 +729,7 @@ export function ComicGenerationForm({
                     ref={styleButtonRef}
                     type="button"
                     onClick={toggleStyleMenu}
-                    disabled={disabled || isWorking}
+                    disabled={disabled || isWorking || hasPendingReferenceAnalysis}
                     className="flex min-h-8 items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-white"
                   >
                     {selectedStyle?.image ? (
@@ -723,10 +755,10 @@ export function ComicGenerationForm({
                   type="button"
                   size="sm"
                   onClick={handleSubmit}
-                  disabled={!prompt.trim() || isWorking}
+                  disabled={disabled || !prompt.trim() || isWorking || hasPendingReferenceAnalysis}
                   className="h-8 bg-white text-black transition-transform hover:bg-neutral-200 active:scale-[0.96]"
                 >
-                  {submitLabel ?? (mode === "new-story" ? "Create story" : "Generate page")}
+                  {hasPendingReferenceAnalysis ? "Checking photo" : submitLabel ?? (mode === "new-story" ? "Create story" : "Generate page")}
                   {isWorking ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
@@ -774,6 +806,18 @@ export function ComicGenerationForm({
               <p className="max-w-44 truncate px-1 pb-1 pt-2 text-center text-xs text-muted-foreground sm:max-w-52">
                 {previewReference.name}
               </p>
+              {previewReference.source === "uploaded" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeUploadedReference(previewReference.id)}
+                  disabled={disabled || isWorking}
+                  className="mt-2 h-8 w-full text-xs text-red-200 hover:bg-red-500/12 hover:text-red-100"
+                >
+                  Remove photo
+                </Button>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -811,11 +855,11 @@ function StyleSelectorPortal({
     <AnimatePresence initial={false}>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0, y: 8, scale: 0.98, filter: "blur(4px)" }}
-          animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-          exit={{ opacity: 0, y: 6, scale: 0.98, filter: "blur(4px)" }}
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 6, scale: 0.98 }}
           transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-          className="fixed inset-0 z-[100] flex items-end bg-black/55 p-3 backdrop-blur-[2px] sm:inset-auto sm:w-64 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
+          className="fixed inset-0 z-[1000] flex items-end bg-black/55 p-3 backdrop-blur-[2px] sm:inset-auto sm:w-64 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
           style={desktopStyle}
           onClick={onClose}
         >

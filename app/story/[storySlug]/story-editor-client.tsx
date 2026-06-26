@@ -31,8 +31,18 @@ interface PageData {
   prompt: string;
   characterUploads?: string[];
   characterReferences?: StoredCharacterReference[];
+  imageVariations?: PageImageVariationData[];
   style: string;
   dbId?: string; // actual database UUID
+}
+
+interface PageImageVariationData {
+  id: string;
+  imageUrl: string;
+  isPrimary: boolean;
+  model?: string | null;
+  generationMs?: number | null;
+  createdAt?: string | Date;
 }
 
 interface StoryData {
@@ -61,6 +71,7 @@ export function StoryEditorClient() {
   const [pageToDelete, setPageToDelete] = useState<number | null>(null);
   const [showRedrawDialog, setShowRedrawDialog] = useState(false);
   const [loadingPageId, setLoadingPageId] = useState<number | null>(null);
+  const [selectingVariationId, setSelectingVariationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [existingCharacterReferences, setExistingCharacterReferences] = useState<
     Array<Partial<StoredCharacterReference> & { url: string }>
@@ -106,16 +117,24 @@ export function StoryEditorClient() {
         setStory(storyData);
         setIsOwner(ownerStatus ?? false); // Default to false if undefined
         setPages(
-          pagesData.map((page: any) => ({
-            id: page.pageNumber,
-            title: storyData.title,
-            image: page.generatedImageUrl || "",
-            prompt: page.prompt,
-            characterUploads: page.characterImageUrls,
-            characterReferences: page.characterReferences || [],
-            style: storyData.style || "noir",
-            dbId: page.id,
-          }))
+          pagesData.map((page: any) => {
+            const imageVariations: PageImageVariationData[] = Array.isArray(page.imageVariations)
+              ? page.imageVariations
+              : [];
+            const primaryVariation = imageVariations.find((variation) => variation.isPrimary);
+
+            return {
+              id: page.pageNumber,
+              title: storyData.title,
+              image: primaryVariation?.imageUrl || page.generatedImageUrl || "",
+              prompt: page.prompt,
+              characterUploads: page.characterImageUrls,
+              characterReferences: page.characterReferences || [],
+              imageVariations,
+              style: storyData.style || "noir",
+              dbId: page.id,
+            };
+          })
         );
 
         // Load existing character images for reuse
@@ -285,7 +304,13 @@ export function StoryEditorClient() {
       // Update the current page with the new image
       setPages((prevPages) =>
         prevPages.map((page, index) =>
-          index === currentPage ? { ...page, image: result.imageUrl } : page
+          index === currentPage
+            ? {
+                ...page,
+                image: result.imageUrl,
+                imageVariations: result.imageVariations || page.imageVariations || [],
+              }
+            : page
         )
       );
 
@@ -307,6 +332,62 @@ export function StoryEditorClient() {
       });
     } finally {
       setLoadingPageId(null);
+    }
+  };
+
+  const handleSelectPageVariation = async (variationId: string) => {
+    const currentPageData = pages[currentPage];
+    if (!story || !currentPageData?.dbId) return;
+
+    setSelectingVariationId(variationId);
+
+    try {
+      const response = await fetch("/api/page-variations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          storySlug: story.slug,
+          pageId: currentPageData.dbId,
+          variationId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to select page version");
+      }
+
+      const result = await response.json();
+
+      setPages((prevPages) =>
+        prevPages.map((page, index) =>
+          index === currentPage
+            ? {
+                ...page,
+                image: result.imageUrl,
+                imageVariations: result.imageVariations || page.imageVariations || [],
+              }
+            : page
+        )
+      );
+
+      toast({
+        title: "Page version selected",
+        description: "This generation is now the primary page image.",
+        duration: 2500,
+      });
+    } catch (error) {
+      console.error("Error selecting page version:", error);
+      toast({
+        title: "Failed to select version",
+        description: error instanceof Error ? error.message : "Could not select this page version.",
+        variant: "destructive",
+        duration: 4000,
+      });
+    } finally {
+      setSelectingVariationId(null);
     }
   };
 
@@ -476,6 +557,7 @@ export function StoryEditorClient() {
         prompt: data.prompt,
         characterUploads: data.characterUrls || [],
         characterReferences: data.characterReferences || [],
+        imageVariations: result.imageVariations || [],
         style: story?.style || "noir",
         dbId: result.pageId,
       },
@@ -538,6 +620,8 @@ export function StoryEditorClient() {
           onInfoClick={() => setShowInfoSheet(true)}
           onRedrawClick={handleRedrawPage}
           onDeletePage={() => handleDeletePage(currentPage)}
+          onSelectVariation={handleSelectPageVariation}
+          selectingVariationId={selectingVariationId}
           onNextPage={() =>
             setCurrentPage((prev) =>
               prev < pages.length - 1 ? prev + 1 : prev

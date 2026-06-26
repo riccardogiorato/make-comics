@@ -173,6 +173,10 @@ export function GeneratePageModal({
   };
 
   const handleGenerate = async ({ prompt, references }: ComicGenerationSubmitData) => {
+    if (references.some((reference) => reference.status === "checking")) {
+      throw new Error("Still analyzing the uploaded photo. Please try again in a moment.");
+    }
+
     setIsGenerating(true);
 
     try {
@@ -221,7 +225,7 @@ export function GeneratePageModal({
 
   useKeyboardShortcut(
     () => {
-      if (isOpen && !isGenerating && prompt.trim()) {
+      if (isOpen && !isGenerating && prompt.trim() && !references.some((reference) => reference.status === "checking")) {
         void handleGenerate({
           prompt,
           style: "story-style",
@@ -229,7 +233,7 @@ export function GeneratePageModal({
         });
       }
     },
-    { disabled: !isOpen || isGenerating },
+    { disabled: !isOpen || isGenerating || references.some((reference) => reference.status === "checking") },
   );
 
   const handleOpenChange = (open: boolean) => {
@@ -241,7 +245,7 @@ export function GeneratePageModal({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="max-w-xl rounded-xl border border-border/50 bg-background p-4 shadow-2xl sm:p-5"
+        className="max-h-[calc(100dvh-1.5rem)] max-w-[min(44rem,calc(100vw-1.5rem))] overflow-visible rounded-xl border border-border/50 bg-background p-4 shadow-2xl sm:p-5"
       >
         <DialogHeader className="pr-10">
           <DialogTitle className="font-heading text-xl text-white">
@@ -256,7 +260,7 @@ export function GeneratePageModal({
           </DialogClose>
         </DialogHeader>
 
-        <div className="mt-4">
+        <div className="mt-4 min-w-0">
           <ComicGenerationForm
             mode="new-page"
             title=""

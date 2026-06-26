@@ -1,5 +1,5 @@
-import { pgTable, text, integer, timestamp, uuid, jsonb, boolean, serial, bigint } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { pgTable, text, integer, timestamp, uuid, jsonb, boolean, serial, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { relations, sql } from 'drizzle-orm';
 import type { StoredCharacterReference } from './reference-analysis';
 
 // Stories table
@@ -22,6 +22,8 @@ export const pages = pgTable('pages', {
   pageNumber: integer('page_number').notNull(),
   prompt: text('prompt').notNull(),
   characterImageUrls: jsonb('character_image_urls').$type<string[]>().default([]).notNull(),
+  // Legacy analysis payload kept to avoid dropping existing production data.
+  characterAnalysis: jsonb('character_analysis').$type<StoredCharacterReference[]>().default([]).notNull(),
   characterReferences: jsonb('character_references').$type<StoredCharacterReference[]>().default([]).notNull(),
   generatedImageUrl: text('generated_image_url'),
   // #1 moderation rewrite: non-null when the original prompt was rewritten
@@ -33,6 +35,23 @@ export const pages = pgTable('pages', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const pageImageVariations = pgTable('page_image_variations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pageId: uuid('page_id').references(() => pages.id, { onDelete: 'cascade' }).notNull(),
+  imageUrl: text('image_url').notNull(),
+  isPrimary: boolean('is_primary').default(false).notNull(),
+  prompt: text('prompt'),
+  finalPrompt: text('final_prompt'),
+  model: text('model'),
+  generationMs: integer('generation_ms'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('page_image_variations_page_id_idx').on(table.pageId),
+  uniqueIndex('page_image_variations_one_primary_idx')
+    .on(table.pageId)
+    .where(sql`${table.isPrimary} = true`),
+]);
+
 // Relations
 export const storiesRelations = relations(stories, ({ many }) => ({
   pages: many(pages),
@@ -42,6 +61,13 @@ export const pagesRelations = relations(pages, ({ one }) => ({
   story: one(stories, {
     fields: [pages.storyId],
     references: [stories.id],
+  }),
+}));
+
+export const pageImageVariationsRelations = relations(pageImageVariations, ({ one }) => ({
+  page: one(pages, {
+    fields: [pageImageVariations.pageId],
+    references: [pages.id],
   }),
 }));
 
@@ -62,3 +88,6 @@ export type NewStory = typeof stories.$inferInsert;
 
 export type Page = typeof pages.$inferSelect;
 export type NewPage = typeof pages.$inferInsert;
+export type PageImageVariation = typeof pageImageVariations.$inferSelect;
+export type NewPageImageVariation = typeof pageImageVariations.$inferInsert;
+export type PageWithVariations = Page & { imageVariations: PageImageVariation[] };

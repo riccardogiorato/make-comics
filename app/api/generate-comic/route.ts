@@ -267,7 +267,7 @@ Only return the JSON, no other text.`;
       }
 
       return NextResponse.json(
-        { error: `Internal server error: ${error instanceof Error ? error.message : "Unknown error"}` },
+        { error: "Failed to generate image. Please try again." },
         { status: 500 },
       );
     }
@@ -307,17 +307,28 @@ Only return the JSON, no other text.`;
     }
 
     // Update page in database with S3 URL + telemetry
+    let imageVariations;
     try {
-      await updatePage(page.id, s3ImageUrl, {
+      const variation = await updatePage(page.id, s3ImageUrl, {
         model: genResult.model,
         generationMs: genResult.generationMs,
         finalPrompt: genResult.finalPrompt,
       });
+      imageVariations = [variation];
     } catch (dbError) {
       console.error("Error updating page in database:", dbError);
+      try {
+        if (!storyId) {
+          await deleteStory(story!.id);
+        } else {
+          await deletePage(page.id);
+        }
+      } catch (cleanupError) {
+        console.error("Cleanup error after generated image save failure:", cleanupError);
+      }
       return NextResponse.json(
-        { error: "Failed to save generated image" },
-        { status: 500 },
+        { error: "Generated image could not be saved. Please try again." },
+        { status: 503 },
       );
     }
 
@@ -335,13 +346,14 @@ Only return the JSON, no other text.`;
     }
 
     const responseData = storyId
-      ? { imageUrl: s3ImageUrl, pageId: page.id, pageNumber: page.pageNumber, promptAdjusted: genResult.promptAdjusted }
+      ? { imageUrl: s3ImageUrl, pageId: page.id, pageNumber: page.pageNumber, imageVariations, promptAdjusted: genResult.promptAdjusted }
       : {
           imageUrl: s3ImageUrl,
           storyId: story!.id,
           storySlug: story!.slug,
           pageId: page.id,
           pageNumber: page.pageNumber,
+          imageVariations,
           title: generatedTitle || story!.title,
           description: generatedDescription || story!.description,
           promptAdjusted: genResult.promptAdjusted,
@@ -351,11 +363,7 @@ Only return the JSON, no other text.`;
   } catch (error) {
     console.error("Error in generate-comic API:", error);
     return NextResponse.json(
-      {
-        error: `Internal server error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      },
+      { error: "Could not create comic. Please try again." },
       { status: 500 },
     );
   }

@@ -27,6 +27,10 @@ export function getFriendlyGenerationErrorMessage(errorMessage: string): string 
     return "This prompt needs a safer original version before we can generate it.";
   }
 
+  if (/unterminated string|unexpected token|json|position \d+|failed query|neondberror|fetch failed|error connecting to database/i.test(errorMessage)) {
+    return "Something went wrong reading the request. Please try again.";
+  }
+
   if (errorMessage.includes("400 {") || errorMessage.includes("Together AI API error")) {
     return "The image model could not use this request. Please adjust the prompt and try again.";
   }
